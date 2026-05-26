@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Demo for Phase 1 commands:
+# Demo for Phase 1 / 1.1 commands:
 #   kb init
 #   kb ingest
 #   kb compile --fast
@@ -26,6 +26,15 @@ cat > pcie-mini-note.md <<'MARKDOWN'
 
 BAR sizing is part of PCIe enumeration.
 MARKDOWN
+mkdir -p pcie-book/pcie-book.assets
+cat > pcie-book/pcie-book.md <<'MARKDOWN'
+# PCIe Book Export
+
+The LTSSM diagram is kept beside this Markdown export.
+
+![LTSSM](pcie-book.assets/ltssm.png)
+MARKDOWN
+printf 'fake png bytes\n' > pcie-book/pcie-book.assets/ltssm.png
 printf 'LTSSM: L0\n' > boot.log
 
 echo
@@ -40,6 +49,10 @@ cd pcie
 echo
 echo "== kb ingest ../boot.log =="
 "${KB_BIN}" ingest ../boot.log
+
+echo
+echo "== kb ingest ../pcie-book/ =="
+"${KB_BIN}" ingest ../pcie-book/
 
 echo
 echo "== kb compile --fast =="

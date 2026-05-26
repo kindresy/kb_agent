@@ -343,3 +343,69 @@ def test_compile_fast_writes_failed_state_for_missing_required_file(
     state = json.loads((root / ".kb" / "compile_state.json").read_text())
     assert state["status"] == "failed"
     assert state["findings"][0]["code"] == "missing_required_file"
+
+
+def test_compile_fast_fails_missing_package_asset(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "package"
+    assets = package / "pcie_book.assets"
+    assets.mkdir(parents=True)
+    (package / "pcie_book.md").write_text(
+        "# PCIe Book\n\n![LTSSM](pcie_book.assets/ltssm.png)\n",
+        encoding="utf-8",
+    )
+    (assets / "ltssm.png").write_bytes(b"png bytes")
+    root = tmp_path / "pcie"
+    monkeypatch.chdir(root)
+    assert run_cli("ingest", str(package)).exit_code == 0
+    (root / "sources" / "manuals" / "pcie_book" / "pcie_book.assets" / "ltssm.png").unlink()
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "missing package asset" in result.stdout
+
+
+def test_compile_fast_fails_package_markdown_link_outside_package(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "package"
+    assets = package / "pcie_book.assets"
+    assets.mkdir(parents=True)
+    (package / "pcie_book.md").write_text(
+        "# PCIe Book\n\n[Escape](../outside.md)\n",
+        encoding="utf-8",
+    )
+    (assets / "ltssm.png").write_bytes(b"png bytes")
+    root = tmp_path / "pcie"
+    monkeypatch.chdir(root)
+    assert run_cli("ingest", str(package)).exit_code == 0
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "package markdown link escapes package" in result.stdout
+
+
+def test_compile_fast_passes_valid_markdown_package(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "package"
+    assets = package / "pcie_book.assets"
+    assets.mkdir(parents=True)
+    (package / "pcie_book.md").write_text(
+        "# PCIe Book\n\n![LTSSM](pcie_book.assets/ltssm.png)\n",
+        encoding="utf-8",
+    )
+    (assets / "ltssm.png").write_bytes(b"png bytes")
+    root = tmp_path / "pcie"
+    monkeypatch.chdir(root)
+    assert run_cli("ingest", str(package)).exit_code == 0
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 0
+    assert "Compile passed" in result.stdout

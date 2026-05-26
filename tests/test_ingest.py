@@ -90,3 +90,68 @@ def test_default_ingest_uses_root_inbox_from_nested_directory(
     assert len(records) == 1
     assert records[0]["source_id"] == "boot"
     assert records[0]["path"] == "sources/logs/boot.log"
+
+
+def test_ingest_markdown_with_assets_as_single_package(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "pcie_book"
+    assets = package / "pcie_book.assets"
+    assets.mkdir(parents=True)
+    (package / "pcie_book.md").write_text(
+        "# PCIe Book\n\n![LTSSM](pcie_book.assets/ltssm.png)\n",
+        encoding="utf-8",
+    )
+    (assets / "ltssm.png").write_bytes(b"png bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(package))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    record = records[0]
+    assert record["source_id"] == "pcie_book"
+    assert record["type"] == "manual"
+    assert record["kind"] == "package"
+    assert record["path"] == "sources/manuals/pcie_book/pcie_book.md"
+    assert record["package_path"] == "sources/manuals/pcie_book"
+    assert record["assets"] == [
+        "sources/manuals/pcie_book/pcie_book.assets/ltssm.png"
+    ]
+    assert (
+        tmp_path / "pcie" / "sources" / "manuals" / "pcie_book" / "pcie_book.md"
+    ).is_file()
+    assert (
+        tmp_path
+        / "pcie"
+        / "sources"
+        / "manuals"
+        / "pcie_book"
+        / "pcie_book.assets"
+        / "ltssm.png"
+    ).is_file()
+
+
+def test_ingest_markdown_file_with_sibling_assets_as_package(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    markdown = tmp_path / "pcie_notes.md"
+    assets = tmp_path / "pcie_notes.assets"
+    assets.mkdir()
+    markdown.write_text("![Diagram](pcie_notes.assets/topology.png)\n", encoding="utf-8")
+    (assets / "topology.png").write_bytes(b"png bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(markdown))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["kind"] == "package"
+    assert records[0]["path"] == "sources/manuals/pcie_notes/pcie_notes.md"
+    assert records[0]["assets"] == [
+        "sources/manuals/pcie_notes/pcie_notes.assets/topology.png"
+    ]

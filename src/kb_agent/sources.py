@@ -17,6 +17,9 @@ class SourceRecord:
     original_path: str
     hash: str
     status: str = "accepted"
+    kind: str = "file"
+    package_path: str | None = None
+    assets: list[str] | None = None
 
 
 TYPE_BY_SUFFIX = {
@@ -64,6 +67,14 @@ def detect_type(path: Path) -> str:
 def source_id_for(path: Path) -> str:
     source_id = re.sub(r"[^a-z0-9]+", "_", path.stem.lower()).strip("_")
     return source_id or "source"
+
+
+def is_markdown(path: Path) -> bool:
+    return path.suffix.lower() in {".md", ".markdown"}
+
+
+def markdown_assets_dir(path: Path) -> Path:
+    return path.with_name(f"{path.stem}.assets")
 
 
 def iter_input_files(path: Path) -> list[Path]:
@@ -122,12 +133,89 @@ def unique_source_id(source_id: str, existing_ids: set[str]) -> str:
     raise ValueError(f"could not find unique source_id for {source_id}")
 
 
+def allocate_package_destination(
+    root: Path, source_id: str, existing_ids: set[str]
+) -> tuple[str, Path]:
+    destination_parent = root / DESTINATION_BY_TYPE["manual"]
+    for counter in range(1, 10_000):
+        candidate_id = source_id if counter == 1 else f"{source_id}_{counter}"
+        destination = destination_parent / candidate_id
+        if candidate_id not in existing_ids and not destination.exists():
+            return candidate_id, destination
+    raise ValueError(f"could not find unique package destination for {source_id}")
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def package_assets(markdown_path: Path) -> list[Path]:
+    assets_dir = markdown_assets_dir(markdown_path)
+    if not assets_dir.is_dir():
+        return []
+    return sorted(path for path in assets_dir.rglob("*") if path.is_file())
+
+
+def ingest_markdown_package(
+    root: Path, markdown_path: Path, existing_ids: set[str]
+) -> SourceRecord:
+    source_id, package_dir = allocate_package_destination(
+        root, source_id_for(markdown_path), existing_ids
+    )
+    package_dir.mkdir(parents=True, exist_ok=True)
+
+    destination_markdown = package_dir / markdown_path.name
+    shutil.copy2(markdown_path, destination_markdown)
+
+    assets_dir = markdown_assets_dir(markdown_path)
+    destination_assets_dir = package_dir / assets_dir.name
+    shutil.copytree(assets_dir, destination_assets_dir)
+
+    assets = [
+        path.relative_to(root).as_posix()
+        for path in sorted(destination_assets_dir.rglob("*"))
+        if path.is_file()
+    ]
+
+    return SourceRecord(
+        source_id=source_id,
+        type="manual",
+        title=markdown_path.stem,
+        path=destination_markdown.relative_to(root).as_posix(),
+        original_path=str(markdown_path),
+        hash=sha256_file(destination_markdown),
+        kind="package",
+        package_path=package_dir.relative_to(root).as_posix(),
+        assets=assets,
+    )
+
+
 def ingest_path(root: Path, input_path: Path) -> list[SourceRecord]:
     records = load_source_index(root)
     new_records = []
     existing_ids = {record.source_id for record in records}
+    input_files = iter_input_files(input_path)
+    package_markdown_files = [
+        source_path
+        for source_path in input_files
+        if is_markdown(source_path) and markdown_assets_dir(source_path).is_dir()
+    ]
+    package_asset_dirs = [markdown_assets_dir(path) for path in package_markdown_files]
 
-    for source_path in iter_input_files(input_path):
+    for markdown_path in package_markdown_files:
+        record = ingest_markdown_package(root, markdown_path, existing_ids)
+        existing_ids.add(record.source_id)
+        new_records.append(record)
+
+    for source_path in input_files:
+        if source_path in package_markdown_files:
+            continue
+        if any(is_relative_to(source_path, asset_dir) for asset_dir in package_asset_dirs):
+            continue
         source_type = detect_type(source_path)
         destination_dir = root / DESTINATION_BY_TYPE[source_type]
         destination_dir.mkdir(parents=True, exist_ok=True)
