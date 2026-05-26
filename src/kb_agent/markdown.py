@@ -96,6 +96,9 @@ def _strip_markdown_link_title(target: str) -> str:
             depth -= 1
             continue
         if char.isspace() and depth == 0:
+            rest = target[index:].lstrip()
+            if not rest.startswith(("'", '"', "(")):
+                continue
             return target[:index]
     return target
 

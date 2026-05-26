@@ -31,13 +31,22 @@ pcie-book/
     └── ltssm.png
 ```
 
+Supported package layouts:
+
+```text
+<stem>.assets/
+<stem>-assets/
+<stem>_assets/
+parts/ or images/ directories referenced by relative Markdown links
+```
+
 Run:
 
 ```bash
 kb ingest ../pcie-book/
 ```
 
-The package is archived under `sources/manuals/pcie-book/`, and `kb compile --fast` checks that package assets and relative Markdown links still resolve.
+The package is archived under `sources/manuals/pcie-book/`, and `kb compile --fast` checks that package assets and relative Markdown links still resolve. Re-running `kb ingest` on already indexed content skips matching source hashes instead of creating duplicate `_2` records.
 
 ## Demo
 

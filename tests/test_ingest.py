@@ -155,3 +155,98 @@ def test_ingest_markdown_file_with_sibling_assets_as_package(
     assert records[0]["assets"] == [
         "sources/manuals/pcie_notes/pcie_notes.assets/topology.png"
     ]
+
+
+def test_ingest_markdown_with_dash_assets_as_single_package(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "pcie_spec"
+    assets = package / "PCI Express Base-assets" / "part_0001" / "images"
+    assets.mkdir(parents=True)
+    (package / "PCI Express Base.md").write_text(
+        "# PCI Express Base\n\n![Figure](PCI Express Base-assets/part_0001/images/fig.jpg)\n",
+        encoding="utf-8",
+    )
+    (assets / "fig.jpg").write_bytes(b"jpg bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(package))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["kind"] == "package"
+    assert records[0]["path"] == "sources/manuals/pci_express_base/PCI Express Base.md"
+    assert records[0]["assets"] == [
+        "sources/manuals/pci_express_base/PCI Express Base-assets/part_0001/images/fig.jpg"
+    ]
+
+
+def test_ingest_markdown_referenced_sibling_directory_as_package(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "pci_arch"
+    assets = package / "parts" / "part_0001" / "images"
+    assets.mkdir(parents=True)
+    (package / "pci_express_arch.md").write_text(
+        "# PCI Express Architecture\n\n![Topology](parts/part_0001/images/topology.jpg)\n",
+        encoding="utf-8",
+    )
+    (assets / "topology.jpg").write_bytes(b"jpg bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(package))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["kind"] == "package"
+    assert records[0]["path"] == "sources/manuals/pci_express_arch/pci_express_arch.md"
+    assert records[0]["assets"] == [
+        "sources/manuals/pci_express_arch/parts/part_0001/images/topology.jpg"
+    ]
+
+
+def test_reingesting_same_file_skips_duplicate_hash(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source_file = tmp_path / "manual.md"
+    source_file.write_text("# Manual\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    first = run_cli("ingest", str(source_file))
+    second = run_cli("ingest", str(source_file))
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert "Ingested 0 source file(s)" in second.output
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["path"] == "sources/manuals/manual.md"
+
+
+def test_reingesting_same_markdown_package_skips_duplicate_hash(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    markdown = tmp_path / "pcie_notes.md"
+    assets = tmp_path / "pcie_notes.assets"
+    assets.mkdir()
+    markdown.write_text("![Diagram](pcie_notes.assets/topology.png)\n", encoding="utf-8")
+    (assets / "topology.png").write_bytes(b"png bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    first = run_cli("ingest", str(markdown))
+    second = run_cli("ingest", str(markdown))
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert "Ingested 0 source file(s)" in second.output
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["kind"] == "package"

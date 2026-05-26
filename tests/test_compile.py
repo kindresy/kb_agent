@@ -95,6 +95,16 @@ def test_extract_markdown_links_allows_angle_wrapped_spaces():
     assert links == ["notes/foo bar.md"]
 
 
+def test_extract_markdown_links_allows_unescaped_spaces_without_quoted_title():
+    text = """
+[Doc](PCI Express Base-assets/part_0001/images/packet.jpg)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["PCI Express Base-assets/part_0001/images/packet.jpg"]
+
+
 def test_extract_markdown_links_unescapes_spaces_in_relative_files():
     text = r"""
 [Doc](notes/foo\ bar.md)

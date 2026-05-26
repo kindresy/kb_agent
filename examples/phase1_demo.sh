@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Demo for Phase 1 / 1.1 commands:
+# Demo for Phase 1 / 1.1 / 1.2 commands:
 #   kb init
 #   kb ingest
 #   kb compile --fast
@@ -35,6 +35,24 @@ The LTSSM diagram is kept beside this Markdown export.
 ![LTSSM](pcie-book.assets/ltssm.png)
 MARKDOWN
 printf 'fake png bytes\n' > pcie-book/pcie-book.assets/ltssm.png
+mkdir -p pcie-spec/"PCI Express Base-assets"/part_0001/images
+cat > pcie-spec/"PCI Express Base.md" <<'MARKDOWN'
+# PCI Express Base
+
+This export uses the dash-assets layout common in converted specifications.
+
+![Packet format](PCI Express Base-assets/part_0001/images/packet.jpg)
+MARKDOWN
+printf 'fake jpg bytes\n' > pcie-spec/"PCI Express Base-assets"/part_0001/images/packet.jpg
+mkdir -p pcie-arch/parts/part_0001/images
+cat > pcie-arch/pci_express_arch.md <<'MARKDOWN'
+# PCI Express Architecture
+
+This export links into a sibling parts directory.
+
+![Topology](parts/part_0001/images/topology.jpg)
+MARKDOWN
+printf 'fake jpg bytes\n' > pcie-arch/parts/part_0001/images/topology.jpg
 printf 'LTSSM: L0\n' > boot.log
 
 echo
@@ -53,6 +71,18 @@ echo "== kb ingest ../boot.log =="
 echo
 echo "== kb ingest ../pcie-book/ =="
 "${KB_BIN}" ingest ../pcie-book/
+
+echo
+echo "== kb ingest ../pcie-spec/ =="
+"${KB_BIN}" ingest ../pcie-spec/
+
+echo
+echo "== kb ingest ../pcie-arch/ =="
+"${KB_BIN}" ingest ../pcie-arch/
+
+echo
+echo "== kb ingest ../pcie-arch/ again skips duplicates =="
+"${KB_BIN}" ingest ../pcie-arch/
 
 echo
 echo "== kb compile --fast =="

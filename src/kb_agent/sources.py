@@ -6,6 +6,9 @@ import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.parse import unquote
+
+from kb_agent.markdown import extract_markdown_links
 
 
 @dataclass(frozen=True)
@@ -75,6 +78,46 @@ def is_markdown(path: Path) -> bool:
 
 def markdown_assets_dir(path: Path) -> Path:
     return path.with_name(f"{path.stem}.assets")
+
+
+def named_markdown_asset_dirs(path: Path) -> list[Path]:
+    return [
+        path.with_name(f"{path.stem}.assets"),
+        path.with_name(f"{path.stem}-assets"),
+        path.with_name(f"{path.stem}_assets"),
+    ]
+
+
+def linked_markdown_asset_dirs(path: Path) -> list[Path]:
+    if not path.is_file():
+        return []
+
+    parent = path.parent
+    dirs: list[Path] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for link in extract_markdown_links(text):
+        link_path = Path(unquote(link))
+        if not link_path.parts:
+            continue
+        first_part = link_path.parts[0]
+        if first_part in {".", ".."}:
+            continue
+        candidate = parent / first_part
+        if candidate.is_dir() and is_relative_to(candidate, parent):
+            dirs.append(candidate)
+    return dirs
+
+
+def markdown_asset_dirs(path: Path) -> list[Path]:
+    dirs = [
+        candidate
+        for candidate in named_markdown_asset_dirs(path) + linked_markdown_asset_dirs(path)
+        if candidate.is_dir()
+    ]
+    unique_dirs: dict[Path, Path] = {}
+    for directory in dirs:
+        unique_dirs[directory.resolve()] = directory
+    return sorted(unique_dirs.values())
 
 
 def iter_input_files(path: Path) -> list[Path]:
@@ -154,10 +197,12 @@ def is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def package_assets(markdown_path: Path) -> list[Path]:
-    assets_dir = markdown_assets_dir(markdown_path)
-    if not assets_dir.is_dir():
-        return []
-    return sorted(path for path in assets_dir.rglob("*") if path.is_file())
+    return sorted(
+        path
+        for assets_dir in markdown_asset_dirs(markdown_path)
+        for path in assets_dir.rglob("*")
+        if path.is_file()
+    )
 
 
 def ingest_markdown_package(
@@ -171,15 +216,15 @@ def ingest_markdown_package(
     destination_markdown = package_dir / markdown_path.name
     shutil.copy2(markdown_path, destination_markdown)
 
-    assets_dir = markdown_assets_dir(markdown_path)
-    destination_assets_dir = package_dir / assets_dir.name
-    shutil.copytree(assets_dir, destination_assets_dir)
-
-    assets = [
-        path.relative_to(root).as_posix()
-        for path in sorted(destination_assets_dir.rglob("*"))
-        if path.is_file()
-    ]
+    assets: list[str] = []
+    for assets_dir in markdown_asset_dirs(markdown_path):
+        destination_assets_dir = package_dir / assets_dir.name
+        shutil.copytree(assets_dir, destination_assets_dir)
+        assets.extend(
+            path.relative_to(root).as_posix()
+            for path in sorted(destination_assets_dir.rglob("*"))
+            if path.is_file()
+        )
 
     return SourceRecord(
         source_id=source_id,
@@ -198,23 +243,35 @@ def ingest_path(root: Path, input_path: Path) -> list[SourceRecord]:
     records = load_source_index(root)
     new_records = []
     existing_ids = {record.source_id for record in records}
+    existing_hashes = {record.hash for record in records}
     input_files = iter_input_files(input_path)
     package_markdown_files = [
         source_path
         for source_path in input_files
-        if is_markdown(source_path) and markdown_assets_dir(source_path).is_dir()
+        if is_markdown(source_path) and markdown_asset_dirs(source_path)
     ]
-    package_asset_dirs = [markdown_assets_dir(path) for path in package_markdown_files]
+    package_asset_dirs = [
+        assets_dir
+        for markdown_path in package_markdown_files
+        for assets_dir in markdown_asset_dirs(markdown_path)
+    ]
 
     for markdown_path in package_markdown_files:
+        source_hash = sha256_file(markdown_path)
+        if source_hash in existing_hashes:
+            continue
         record = ingest_markdown_package(root, markdown_path, existing_ids)
         existing_ids.add(record.source_id)
+        existing_hashes.add(record.hash)
         new_records.append(record)
 
     for source_path in input_files:
         if source_path in package_markdown_files:
             continue
         if any(is_relative_to(source_path, asset_dir) for asset_dir in package_asset_dirs):
+            continue
+        source_hash = sha256_file(source_path)
+        if source_hash in existing_hashes:
             continue
         source_type = detect_type(source_path)
         destination_dir = root / DESTINATION_BY_TYPE[source_type]
@@ -230,8 +287,9 @@ def ingest_path(root: Path, input_path: Path) -> list[SourceRecord]:
             title=source_path.stem,
             path=destination.relative_to(root).as_posix(),
             original_path=str(source_path),
-            hash=sha256_file(destination),
+            hash=source_hash,
         )
+        existing_hashes.add(record.hash)
         new_records.append(record)
 
     write_source_index(root, records + new_records)
