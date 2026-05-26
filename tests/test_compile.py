@@ -97,3 +97,24 @@ def test_extract_markdown_links_unescapes_spaces_in_relative_files():
     links = extract_markdown_links(text)
 
     assert links == ["notes/foo bar.md"]
+
+
+def test_extract_markdown_links_preserves_escaped_hash_in_relative_files():
+    text = r"""
+[Doc](notes/foo\#bar.md)
+[Section](notes/foo.md#intro)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo#bar.md", "notes/foo.md"]
+
+
+def test_extract_markdown_links_allows_angle_wrapped_destinations_with_titles():
+    text = """
+[Doc](<notes/foo bar.md> "title")
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo bar.md"]

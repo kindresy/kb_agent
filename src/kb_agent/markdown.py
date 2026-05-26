@@ -46,15 +46,6 @@ def _iter_markdown_link_targets(text: str) -> list[str]:
 
 
 def _find_markdown_link_target_end(text: str, start: int) -> int:
-    if start < len(text) and text[start] == "<":
-        close_angle = text.find(">", start + 1)
-        if close_angle == -1:
-            return -1
-        close_paren = close_angle + 1
-        while close_paren < len(text) and text[close_paren].isspace():
-            close_paren += 1
-        return close_angle + 1 if close_paren < len(text) and text[close_paren] == ")" else -1
-
     depth = 0
     escaped = False
     for index in range(start, len(text)):
@@ -77,12 +68,15 @@ def _find_markdown_link_target_end(text: str, start: int) -> int:
 
 def _normalize_markdown_link_target(raw_target: str) -> str:
     target = raw_target.strip()
-    if target.startswith("<") and target.endswith(">"):
-        target = target[1:-1]
+    if target.startswith("<"):
+        close_angle = target.find(">", 1)
+        if close_angle != -1:
+            target = target[1:close_angle]
     else:
         target = _strip_markdown_link_title(target)
+    target = _strip_markdown_link_fragment(target)
     target = _unescape_markdown_link_target(target)
-    return target.split("#", 1)[0]
+    return target
 
 
 def _strip_markdown_link_title(target: str) -> str:
@@ -121,6 +115,20 @@ def _unescape_markdown_link_target(target: str) -> str:
     if escaped:
         chars.append("\\")
     return "".join(chars)
+
+
+def _strip_markdown_link_fragment(target: str) -> str:
+    escaped = False
+    for index, char in enumerate(target):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "#":
+            return target[:index]
+    return target
 
 
 def _is_relative_file_link(target: str) -> bool:
