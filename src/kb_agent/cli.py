@@ -3,7 +3,8 @@ from pathlib import Path
 import typer
 
 from kb_agent import __version__
-from kb_agent.layout import create_kb
+from kb_agent.layout import create_kb, find_kb_root
+from kb_agent.sources import ingest_path
 
 app = typer.Typer(
     name="kb",
@@ -41,3 +42,18 @@ def init(domain: str) -> None:
         typer.echo(str(exc))
         raise typer.Exit(code=1)
     typer.echo(f"Initialized knowledge base at {root}")
+
+
+@app.command()
+def ingest(path: Path = typer.Argument(Path("inbox"))) -> None:
+    """Copy files into sources/ and update .kb/source_index.jsonl."""
+    try:
+        root = find_kb_root(Path.cwd())
+        records = ingest_path(root, path)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Ingested {len(records)} source file(s)")
+    for record in records:
+        typer.echo(f"- {record.source_id}: {record.path}")
