@@ -57,3 +57,43 @@ def test_extract_markdown_links_ignores_optional_titles():
     links = extract_markdown_links(text)
 
     assert links == ["../mechanisms/bar.md", "foo.md", "docs/foo.md"]
+
+
+def test_extract_markdown_links_strips_fragments_from_relative_files():
+    text = """
+[Section](notes/foo.md#intro)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo.md"]
+
+
+def test_extract_markdown_links_allows_parentheses_in_relative_files():
+    text = """
+[Doc](notes/foo(bar).md)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo(bar).md"]
+
+
+def test_extract_markdown_links_allows_angle_wrapped_spaces():
+    text = """
+[Doc](<notes/foo bar.md>)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo bar.md"]
+
+
+def test_extract_markdown_links_unescapes_spaces_in_relative_files():
+    text = r"""
+[Doc](notes/foo\ bar.md)
+"""
+
+    links = extract_markdown_links(text)
+
+    assert links == ["notes/foo bar.md"]
