@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
+from kb_agent.layout import find_kb_root
 from tests.conftest import run_cli
 
 
@@ -82,3 +84,36 @@ def test_init_refuses_existing_nonempty_directory(tmp_path: Path, monkeypatch):
 
     assert result.exit_code != 0
     assert "already exists and is not empty" in result.stdout
+
+
+def test_init_refuses_existing_file_target(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pcie").write_text("already here\n")
+
+    result = run_cli("init", "pcie")
+
+    assert result.exit_code != 0
+    assert "already exists and is not empty" in result.stdout
+
+
+def test_find_kb_root_from_root(tmp_path: Path):
+    root = tmp_path / "pcie"
+    result = run_cli("init", str(root))
+
+    assert result.exit_code == 0
+    assert find_kb_root(root) == root
+
+
+def test_find_kb_root_from_nested_directory(tmp_path: Path):
+    root = tmp_path / "pcie"
+    result = run_cli("init", str(root))
+
+    assert result.exit_code == 0
+    assert find_kb_root(root / "notes" / "concepts") == root
+
+
+def test_find_kb_root_raises_outside_kb(tmp_path: Path):
+    with pytest.raises(
+        FileNotFoundError, match="not inside a kb-agent knowledge base"
+    ):
+        find_kb_root(tmp_path)

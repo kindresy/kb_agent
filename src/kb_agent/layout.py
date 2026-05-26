@@ -50,6 +50,8 @@ CANONICAL_DIRS = [
 
 
 def create_kb(root: Path, domain: str) -> None:
+    if root.exists() and not root.is_dir():
+        raise FileExistsError(f"{root} already exists and is not empty")
     if root.exists() and any(root.iterdir()):
         raise FileExistsError(f"{root} already exists and is not empty")
 
