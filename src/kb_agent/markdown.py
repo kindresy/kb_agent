@@ -139,4 +139,8 @@ def _is_relative_file_link(target: str) -> bool:
         return False
     if target.startswith(("#", "/", "//")):
         return False
+    if ":" in target:
+        return False
+    if "/" not in target and "." not in target:
+        return False
     return URI_SCHEME_RE.match(target) is None

@@ -105,6 +105,16 @@ def test_extract_markdown_links_allows_unescaped_spaces_without_quoted_title():
     assert links == ["PCI Express Base-assets/part_0001/images/packet.jpg"]
 
 
+def test_extract_markdown_links_ignores_printf_format_strings():
+    text = r'''
+printf(KERN_INFOPREFIX"%s[%s](%04x:%02x)\n", name, bid, segment, bus);
+'''
+
+    links = extract_markdown_links(text)
+
+    assert links == []
+
+
 def test_extract_markdown_links_unescapes_spaces_in_relative_files():
     text = r"""
 [Doc](notes/foo\ bar.md)

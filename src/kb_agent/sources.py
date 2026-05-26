@@ -108,6 +108,27 @@ def linked_markdown_asset_dirs(path: Path) -> list[Path]:
     return dirs
 
 
+def linked_markdown_asset_aliases(path: Path) -> list[tuple[Path, Path]]:
+    if not path.is_file():
+        return []
+
+    parent = path.parent
+    aliases: list[tuple[Path, Path]] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for link in extract_markdown_links(text):
+        link_path = Path(unquote(link))
+        if len(link_path.parts) < 2 or link_path.parts[0] in {".", ".."}:
+            continue
+        if (parent / link_path).exists():
+            continue
+        for assets_dir in named_markdown_asset_dirs(path):
+            candidate = assets_dir.joinpath(*link_path.parts[1:])
+            if candidate.is_file() and is_relative_to(candidate, assets_dir):
+                aliases.append((candidate, link_path))
+                break
+    return aliases
+
+
 def markdown_asset_dirs(path: Path) -> list[Path]:
     dirs = [
         candidate
@@ -225,6 +246,11 @@ def ingest_markdown_package(
             for path in sorted(destination_assets_dir.rglob("*"))
             if path.is_file()
         )
+    for source_file, relative_link in linked_markdown_asset_aliases(markdown_path):
+        destination_alias = package_dir / relative_link
+        destination_alias.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, destination_alias)
+        assets.append(destination_alias.relative_to(root).as_posix())
 
     return SourceRecord(
         source_id=source_id,

@@ -184,6 +184,45 @@ def test_ingest_markdown_with_dash_assets_as_single_package(
     ]
 
 
+def test_ingest_dash_assets_adds_alias_for_parts_links(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "pcie_spec"
+    assets = package / "PCI Express Base-assets" / "part_0001" / "images"
+    assets.mkdir(parents=True)
+    (package / "PCI Express Base.md").write_text(
+        "# PCI Express Base\n\n![Figure](parts/part_0001/images/fig.jpg)\n",
+        encoding="utf-8",
+    )
+    (assets / "fig.jpg").write_bytes(b"jpg bytes")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(package))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["kind"] == "package"
+    assert records[0]["path"] == "sources/manuals/pci_express_base/PCI Express Base.md"
+    assert (
+        tmp_path
+        / "pcie"
+        / "sources"
+        / "manuals"
+        / "pci_express_base"
+        / "parts"
+        / "part_0001"
+        / "images"
+        / "fig.jpg"
+    ).is_file()
+    assert (
+        "sources/manuals/pci_express_base/parts/part_0001/images/fig.jpg"
+        in records[0]["assets"]
+    )
+
+
 def test_ingest_markdown_referenced_sibling_directory_as_package(
     tmp_path: Path, monkeypatch
 ):
