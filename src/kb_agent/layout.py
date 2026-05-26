@@ -44,6 +44,7 @@ CANONICAL_DIRS = [
     ".kb/claims",
     ".kb/citations",
     ".kb/graph",
+    ".kb/embeddings",
     ".kb/cache",
 ]
 

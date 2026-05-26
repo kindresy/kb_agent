@@ -60,6 +60,7 @@ def test_init_creates_domain_layout(tmp_path: Path, monkeypatch):
         ".kb/claims",
         ".kb/citations",
         ".kb/graph",
+        ".kb/embeddings",
         ".kb/cache",
     ]:
         assert (root / directory).is_dir()
