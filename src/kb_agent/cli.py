@@ -45,11 +45,12 @@ def init(domain: str) -> None:
 
 
 @app.command()
-def ingest(path: Path = typer.Argument(Path("inbox"))) -> None:
+def ingest(path: Path | None = typer.Argument(None)) -> None:
     """Copy files into sources/ and update .kb/source_index.jsonl."""
     try:
         root = find_kb_root(Path.cwd())
-        records = ingest_path(root, path)
+        input_path = root / "inbox" if path is None else path
+        records = ingest_path(root, input_path)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1)

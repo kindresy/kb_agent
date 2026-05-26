@@ -47,3 +47,46 @@ def test_ingest_directory_indexes_each_file(tmp_path: Path, monkeypatch):
     assert {record["source_id"] for record in records} == {"boot", "diagram"}
     assert (tmp_path / "pcie" / "sources" / "logs" / "boot.log").is_file()
     assert (tmp_path / "pcie" / "sources" / "images" / "diagram.png").is_file()
+
+
+def test_ingest_duplicate_basenames_creates_unique_paths_and_source_ids(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    package = tmp_path / "package"
+    first = package / "first"
+    second = package / "second"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    (first / "manual.md").write_text("first manual\n", encoding="utf-8")
+    (second / "manual.md").write_text("second manual\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path / "pcie")
+    result = run_cli("ingest", str(package))
+
+    assert result.exit_code == 0
+    records = read_jsonl(tmp_path / "pcie" / ".kb" / "source_index.jsonl")
+    assert {record["path"] for record in records} == {
+        "sources/manuals/manual.md",
+        "sources/manuals/manual_2.md",
+    }
+    assert {record["source_id"] for record in records} == {"manual", "manual_2"}
+
+
+def test_default_ingest_uses_root_inbox_from_nested_directory(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    (root / "inbox" / "boot.log").write_text("link down\n", encoding="utf-8")
+
+    monkeypatch.chdir(root / "notes" / "concepts")
+    result = run_cli("ingest")
+
+    assert result.exit_code == 0
+    records = read_jsonl(root / ".kb" / "source_index.jsonl")
+    assert len(records) == 1
+    assert records[0]["source_id"] == "boot"
+    assert records[0]["path"] == "sources/logs/boot.log"

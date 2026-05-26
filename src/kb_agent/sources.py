@@ -110,9 +110,22 @@ def unique_destination(destination: Path) -> Path:
     raise ValueError(f"could not find unique destination for {destination}")
 
 
+def unique_source_id(source_id: str, existing_ids: set[str]) -> str:
+    if source_id not in existing_ids:
+        return source_id
+
+    for counter in range(2, 10_000):
+        candidate = f"{source_id}_{counter}"
+        if candidate not in existing_ids:
+            return candidate
+
+    raise ValueError(f"could not find unique source_id for {source_id}")
+
+
 def ingest_path(root: Path, input_path: Path) -> list[SourceRecord]:
     records = load_source_index(root)
     new_records = []
+    existing_ids = {record.source_id for record in records}
 
     for source_path in iter_input_files(input_path):
         source_type = detect_type(source_path)
@@ -120,9 +133,11 @@ def ingest_path(root: Path, input_path: Path) -> list[SourceRecord]:
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = unique_destination(destination_dir / source_path.name)
         shutil.copy2(source_path, destination)
+        source_id = unique_source_id(source_id_for(destination), existing_ids)
+        existing_ids.add(source_id)
 
         record = SourceRecord(
-            source_id=source_id_for(source_path),
+            source_id=source_id,
             type=source_type,
             title=source_path.stem,
             path=destination.relative_to(root).as_posix(),
