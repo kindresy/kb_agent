@@ -1,4 +1,8 @@
+import json
+from pathlib import Path
+
 from kb_agent.markdown import extract_kb_source_refs, extract_markdown_links
+from tests.conftest import run_cli
 
 
 def test_extract_kb_source_refs_from_markdown():
@@ -118,3 +122,44 @@ def test_extract_markdown_links_allows_angle_wrapped_destinations_with_titles():
     links = extract_markdown_links(text)
 
     assert links == ["notes/foo bar.md"]
+
+
+def test_compile_fast_passes_clean_initialized_repo(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 0
+    assert "Compile passed" in result.stdout
+    state = json.loads((tmp_path / "pcie" / ".kb" / "compile_state.json").read_text())
+    assert state["status"] == "passed"
+
+
+def test_compile_fast_fails_missing_source_reference(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    note = tmp_path / "pcie" / "notes" / "concepts" / "bar.md"
+    note.write_text("[Missing](kb://source/missing_source#section=1)\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "missing source reference" in result.stdout
+
+
+def test_compile_fast_fails_broken_relative_markdown_link(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    note = tmp_path / "pcie" / "notes" / "concepts" / "bar.md"
+    note.write_text("[Broken](missing.md)\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "broken markdown link" in result.stdout

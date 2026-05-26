@@ -3,6 +3,7 @@ from pathlib import Path
 import typer
 
 from kb_agent import __version__
+from kb_agent.compile import compile_fast
 from kb_agent.layout import create_kb, find_kb_root
 from kb_agent.sources import ingest_path
 
@@ -58,3 +59,32 @@ def ingest(path: Path | None = typer.Argument(None)) -> None:
     typer.echo(f"Ingested {len(records)} source file(s)")
     for record in records:
         typer.echo(f"- {record.source_id}: {record.path}")
+
+
+@app.command()
+def compile(
+    fast: bool = typer.Option(False, "--fast", help="Run fast compile checks."),
+) -> None:
+    """Validate the knowledge base."""
+    if not fast:
+        typer.echo("Phase 1 supports only: kb compile --fast")
+        raise typer.Exit(code=1)
+
+    try:
+        root = find_kb_root(Path.cwd())
+        result = compile_fast(root)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    for finding in result.findings:
+        typer.echo(
+            f"{finding.severity}: {finding.code}: {finding.path}: {finding.message}"
+        )
+
+    if result.passed:
+        typer.echo("Compile passed")
+        raise typer.Exit(code=0)
+
+    typer.echo("Compile failed")
+    raise typer.Exit(code=1)
