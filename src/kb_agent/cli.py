@@ -4,6 +4,7 @@ import typer
 
 from kb_agent import __version__
 from kb_agent.compile import compile_fast
+from kb_agent.health import build_health_report
 from kb_agent.layout import create_kb, find_kb_root
 from kb_agent.sources import ingest_path
 
@@ -59,6 +60,21 @@ def ingest(path: Path | None = typer.Argument(None)) -> None:
     typer.echo(f"Ingested {len(records)} source file(s)")
     for record in records:
         typer.echo(f"- {record.source_id}: {record.path}")
+
+
+@app.command()
+def health() -> None:
+    """Print a static health summary."""
+    try:
+        root = find_kb_root(Path.cwd())
+        report = build_health_report(root)
+    except FileNotFoundError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Health: {report.status}")
+    typer.echo(f"Sources: {report.source_count}")
+    typer.echo(f"Findings: {report.finding_count}")
 
 
 @app.command(name="compile")
