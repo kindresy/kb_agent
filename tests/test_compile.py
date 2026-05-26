@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
+from kb_agent.compile import compile_fast
 from kb_agent.markdown import extract_kb_source_refs, extract_markdown_links
+from kb_agent.sources import SourceRecord, write_source_index
 from tests.conftest import run_cli
 
 
@@ -163,3 +165,181 @@ def test_compile_fast_fails_broken_relative_markdown_link(
 
     assert result.exit_code == 1
     assert "broken markdown link" in result.stdout
+
+
+def test_compile_fast_fails_indexed_source_path_outside_kb(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    external = tmp_path / "external.md"
+    external.write_text("# External\n", encoding="utf-8")
+    write_source_index(
+        root,
+        [
+            SourceRecord(
+                source_id="external",
+                type="manual",
+                title="External",
+                path="../external.md",
+                original_path=str(external),
+                hash="sha256:test",
+            )
+        ],
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "source path escapes knowledge base" in result.stdout
+
+
+def test_compile_fast_fails_absolute_indexed_source_path_outside_kb(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    external = tmp_path / "external.md"
+    external.write_text("# External\n", encoding="utf-8")
+    write_source_index(
+        root,
+        [
+            SourceRecord(
+                source_id="external",
+                type="manual",
+                title="External",
+                path=str(external),
+                original_path=str(external),
+                hash="sha256:test",
+            )
+        ],
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "source path must be relative to knowledge base" in result.stdout
+
+
+def test_compile_fast_fails_absolute_indexed_source_path_inside_kb(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    source = root / "sources" / "manuals" / "inside.md"
+    source.write_text("# Inside\n", encoding="utf-8")
+    write_source_index(
+        root,
+        [
+            SourceRecord(
+                source_id="inside",
+                type="manual",
+                title="Inside",
+                path=str(source),
+                original_path=str(source),
+                hash="sha256:test",
+            )
+        ],
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "source path must be relative to knowledge base" in result.stdout
+
+
+def test_compile_fast_fails_markdown_link_outside_kb_even_if_target_exists(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    external = tmp_path / "external.md"
+    external.write_text("# External\n", encoding="utf-8")
+    note = root / "notes" / "concepts" / "bar.md"
+    note.write_text("[External](../../../external.md)\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "markdown link escapes knowledge base" in result.stdout
+
+
+def test_compile_fast_fails_missing_required_file(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    (root / "README.md").unlink()
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "missing_required_file" in result.stdout
+    assert "README.md" in result.stdout
+
+
+def test_compile_fast_fails_missing_canonical_directory(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    (root / "notes" / "concepts").rmdir()
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "missing_canonical_dir" in result.stdout
+    assert "notes/concepts" in result.stdout
+
+
+def test_compile_fast_fails_indexed_source_file_drift(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    write_source_index(
+        root,
+        [
+            SourceRecord(
+                source_id="missing",
+                type="manual",
+                title="Missing",
+                path="sources/manuals/missing.md",
+                original_path="/tmp/missing.md",
+                hash="sha256:test",
+            )
+        ],
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "indexed source file does not exist" in result.stdout
+
+
+def test_compile_fast_writes_failed_state_for_missing_required_file(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    (root / "README.md").unlink()
+
+    result = compile_fast(root)
+
+    assert not result.passed
+    state = json.loads((root / ".kb" / "compile_state.json").read_text())
+    assert state["status"] == "failed"
+    assert state["findings"][0]["code"] == "missing_required_file"

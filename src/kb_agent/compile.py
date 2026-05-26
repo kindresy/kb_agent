@@ -36,6 +36,14 @@ def markdown_files(root: Path) -> list[Path]:
     return sorted(files)
 
 
+def _is_inside_root(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def check_structure(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in ["kb.yaml", "AGENTS.md", "README.md"]:
@@ -61,7 +69,29 @@ def check_structure(root: Path) -> list[Finding]:
 def check_source_files(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for record in load_source_index(root):
-        if not (root / record.path).is_file():
+        source_path = Path(record.path)
+        if source_path.is_absolute():
+            findings.append(
+                Finding(
+                    "error",
+                    "absolute_source_path",
+                    record.path,
+                    f"source path must be relative to knowledge base: {record.source_id}",
+                )
+            )
+            continue
+
+        resolved_path = root / source_path
+        if not _is_inside_root(root, resolved_path):
+            findings.append(
+                Finding(
+                    "error",
+                    "source_path_outside_kb",
+                    record.path,
+                    f"source path escapes knowledge base: {record.source_id}",
+                )
+            )
+        elif not resolved_path.is_file():
             findings.append(
                 Finding(
                     "error",
@@ -101,7 +131,17 @@ def check_markdown_links(root: Path) -> list[Finding]:
         text = path.read_text(encoding="utf-8")
         relative_path = path.relative_to(root).as_posix()
         for link in extract_markdown_links(text):
-            if not (path.parent / link).exists():
+            target_path = path.parent / link
+            if not _is_inside_root(root, target_path):
+                findings.append(
+                    Finding(
+                        "error",
+                        "external_markdown_link",
+                        relative_path,
+                        f"markdown link escapes knowledge base: {link}",
+                    )
+                )
+            elif not target_path.exists():
                 findings.append(
                     Finding(
                         "error",

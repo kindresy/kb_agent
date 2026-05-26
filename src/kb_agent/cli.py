@@ -61,8 +61,8 @@ def ingest(path: Path | None = typer.Argument(None)) -> None:
         typer.echo(f"- {record.source_id}: {record.path}")
 
 
-@app.command()
-def compile(
+@app.command(name="compile")
+def compile_command(
     fast: bool = typer.Option(False, "--fast", help="Run fast compile checks."),
 ) -> None:
     """Validate the knowledge base."""
