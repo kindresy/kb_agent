@@ -4,6 +4,7 @@ import typer
 
 from kb_agent import __version__
 from kb_agent.accept import accept_learn_run
+from kb_agent.ask import run_ask
 from kb_agent.compile import compile_fast
 from kb_agent.health import build_health_report
 from kb_agent.layout import create_kb, find_kb_root
@@ -70,6 +71,9 @@ def learn(
     sources: str | None = typer.Option(
         None, "--sources", help="Comma-separated source ids."
     ),
+    from_session: Path | None = typer.Option(
+        None, "--from-session", help="Learn from a saved ask session."
+    ),
 ) -> None:
     """Run deterministic staged learning."""
     try:
@@ -79,13 +83,34 @@ def learn(
             if sources
             else None
         )
-        run = run_learn(root, goal=goal, source_ids=source_ids)
+        run = run_learn(
+            root, goal=goal, source_ids=source_ids, from_session=from_session
+        )
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1)
 
     typer.echo(f"Learn run: {run.run_id}")
     typer.echo(f"Selected sources: {len(run.selected_sources)}")
+
+
+@app.command()
+def ask(
+    question: str = typer.Argument(...),
+    with_: list[Path] | None = typer.Option(
+        None, "--with", help="Attach a log, code file, dump, or screenshot."
+    ),
+) -> None:
+    """Ask a deterministic cited question and save the session."""
+    try:
+        root = find_kb_root(Path.cwd())
+        result = run_ask(root, question, with_ or [])
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Session: {result.session_path}")
+    typer.echo(result.answer)
 
 
 @app.command()

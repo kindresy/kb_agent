@@ -17,11 +17,23 @@ class LearnRun:
     goal: str | None
     selected_sources: list[SourceRecord]
     skipped_sources: list[dict[str, str]]
+    from_session: str | None = None
 
 
 def new_run_id(now: datetime | None = None) -> str:
     timestamp = now or datetime.now()
     return timestamp.strftime("learn_%Y%m%d_%H%M%S")
+
+
+def allocate_run_id(root: Path) -> str:
+    base_id = new_run_id()
+    if not (root / ".kb" / "learn_runs" / base_id).exists():
+        return base_id
+    for counter in range(2, 10_000):
+        candidate = f"{base_id}_{counter}"
+        if not (root / ".kb" / "learn_runs" / candidate).exists():
+            return candidate
+    raise ValueError(f"could not allocate learn run id for {base_id}")
 
 
 def select_sources(
@@ -57,6 +69,7 @@ def write_snapshot(root: Path, run: LearnRun) -> None:
         ],
         "selected_sources": [asdict(record) for record in run.selected_sources],
         "skipped_sources": run.skipped_sources,
+        "from_session": run.from_session,
     }
     (run_root / "snapshot.json").write_text(
         json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -316,11 +329,126 @@ def write_learn_report(
     )
 
 
+def resolve_session_path(root: Path, session_path: Path) -> Path:
+    resolved = session_path if session_path.is_absolute() else root / session_path
+    if not resolved.is_dir():
+        raise FileNotFoundError(f"session not found: {session_path}")
+    try:
+        resolved.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"session path escapes knowledge base: {session_path}") from exc
+    return resolved
+
+
+def source_records_from_session(root: Path, session_dir: Path) -> list[SourceRecord]:
+    evidence_path = session_dir / "evidence_pack.json"
+    if not evidence_path.is_file():
+        return []
+    evidence_pack = json.loads(evidence_path.read_text(encoding="utf-8"))
+    refs: list[str] = []
+    for item in evidence_pack.get("evidence", []):
+        for field in ["ref", "citation"]:
+            refs.extend(extract_source_ids(str(item.get(field, ""))))
+    by_id = {record.source_id: record for record in load_source_index(root)}
+    selected: list[SourceRecord] = []
+    for source_id in refs:
+        if source_id in by_id and by_id[source_id] not in selected:
+            selected.append(by_id[source_id])
+    return selected
+
+
+def extract_source_ids(text: str) -> list[str]:
+    return re.findall(r"kb://source/([^#)\s]+)", text)
+
+
+def run_learn_from_session(root: Path, session_path: Path, goal: str | None) -> LearnRun:
+    session_dir = resolve_session_path(root, session_path)
+    selected = source_records_from_session(root, session_dir)
+    run = LearnRun(
+        allocate_run_id(root),
+        goal or f"Learn from session {session_dir.name}",
+        selected,
+        [],
+        session_dir.relative_to(root).as_posix(),
+    )
+    run_root = root / ".kb" / "learn_runs" / run.run_id
+    write_snapshot(root, run)
+
+    question_path = session_dir / "question.md"
+    answer_path = session_dir / "answer.md"
+    evidence_path = session_dir / "evidence_pack.json"
+    question_text = question_path.read_text(encoding="utf-8", errors="replace")
+    answer_text = answer_path.read_text(encoding="utf-8", errors="replace")
+    evidence_pack = json.loads(evidence_path.read_text(encoding="utf-8"))
+    source_id = selected[0].source_id if selected else "session"
+    citation = f"kb://source/{source_id}"
+    for item in evidence_pack.get("evidence", []):
+        refs = extract_source_ids(str(item.get("ref", ""))) or extract_source_ids(
+            str(item.get("citation", ""))
+        )
+        if refs:
+            citation = f"kb://source/{refs[0]}"
+            break
+
+    topic_id = f"topic.session_{slug(session_dir.name)}"
+    topic = {
+        "topic_id": topic_id,
+        "name": f"Session {session_dir.name}",
+        "source_id": source_id,
+        "source_path": session_dir.relative_to(root).as_posix(),
+        "basis": "session",
+        "priority": "normal",
+        "citations": [citation],
+    }
+    chunk_text = f"{question_text}\n\n{answer_text}"[:1000]
+    chunk = {
+        "chunk_id": f"chunk.session_{slug(session_dir.name)}.1",
+        "source_id": source_id,
+        "source_path": session_dir.relative_to(root).as_posix(),
+        "topic_id": topic_id,
+        "kind": "session_summary",
+        "text": chunk_text,
+        "hash": stable_hash(chunk_text),
+        "citation": citation,
+    }
+    claim = {
+        "claim_id": f"claim.session_{slug(session_dir.name)}.1",
+        "topic_id": topic_id,
+        "type": "session_observation",
+        "claim": f"The saved ask session {session_dir.name} contains reusable learning material.",
+        "citations": [citation],
+        "confidence": "deterministic",
+    }
+    profile = {
+        "source_id": source_id,
+        "type": "session",
+        "title": f"Session {session_dir.name}",
+        "path": session_dir.relative_to(root).as_posix(),
+        "kind": "session",
+        "authority": "debug",
+        "headings": [f"Session {session_dir.name}"],
+        "symbols": [],
+        "candidate_topics": [f"Session {session_dir.name}"],
+    }
+    write_jsonl(run_root / "profiles.jsonl", [profile])
+    write_jsonl(run_root / "topics.jsonl", [topic])
+    write_jsonl(run_root / "chunks.jsonl", [chunk])
+    write_jsonl(run_root / "claims.jsonl", [claim])
+    pending_notes = write_pending_notes(root, run.run_id, [topic], [claim])
+    write_learn_report(root, run, [profile], [topic], [chunk], [claim], pending_notes)
+    return run
+
+
 def run_learn(
-    root: Path, goal: str | None = None, source_ids: list[str] | None = None
+    root: Path,
+    goal: str | None = None,
+    source_ids: list[str] | None = None,
+    from_session: Path | None = None,
 ) -> LearnRun:
+    if from_session is not None:
+        return run_learn_from_session(root, from_session, goal)
     selected, skipped = select_sources(root, source_ids)
-    run = LearnRun(new_run_id(), goal, selected, skipped)
+    run = LearnRun(allocate_run_id(root), goal, selected, skipped)
     run_root = root / ".kb" / "learn_runs" / run.run_id
     write_snapshot(root, run)
     profiles = build_profiles(root, selected)
