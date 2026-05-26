@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from kb_agent.jsonl import read_jsonl
 from kb_agent.layout import CANONICAL_DIRS
 from kb_agent.markdown import extract_kb_source_refs, extract_markdown_links
 from kb_agent.sources import load_source_index
@@ -294,6 +295,52 @@ def check_source_packages(root: Path) -> list[Finding]:
     return findings
 
 
+def check_claims(root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    source_ids = {record.source_id for record in load_source_index(root)}
+    claims_root = root / ".kb" / "claims"
+    if not claims_root.is_dir():
+        return findings
+
+    for path in sorted(claims_root.rglob("*.jsonl")):
+        relative_path = path.relative_to(root).as_posix()
+        for claim in read_jsonl(path):
+            claim_id = str(claim.get("claim_id", "<missing>"))
+            citations = claim.get("citations") or []
+            if not citations:
+                findings.append(
+                    Finding(
+                        "error",
+                        "claim_missing_citation",
+                        relative_path,
+                        f"claim has no citation: {claim_id}",
+                    )
+                )
+                continue
+            for citation in citations:
+                refs = extract_kb_source_refs(str(citation))
+                if not refs:
+                    findings.append(
+                        Finding(
+                            "error",
+                            "claim_invalid_citation",
+                            relative_path,
+                            f"claim citation is not a kb source ref: {claim_id}",
+                        )
+                    )
+                for source_id in refs:
+                    if source_id not in source_ids:
+                        findings.append(
+                            Finding(
+                                "error",
+                                "claim_missing_source_reference",
+                                relative_path,
+                                f"claim references missing source: {source_id}",
+                            )
+                        )
+    return findings
+
+
 def compile_fast(root: Path) -> CompileResult:
     findings = [
         *check_structure(root),
@@ -301,6 +348,7 @@ def compile_fast(root: Path) -> CompileResult:
         *check_source_packages(root),
         *check_citations(root),
         *check_markdown_links(root),
+        *check_claims(root),
     ]
     status = (
         "failed"

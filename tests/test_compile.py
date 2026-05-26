@@ -429,3 +429,39 @@ def test_compile_fast_passes_valid_markdown_package(tmp_path: Path, monkeypatch)
 
     assert result.exit_code == 0
     assert "Compile passed" in result.stdout
+
+
+def test_compile_fast_fails_claim_without_citation(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    claim_path = root / ".kb" / "claims" / "claims.jsonl"
+    claim_path.write_text(
+        '{"claim_id":"claim.one","topic_id":"topic.one","claim":"uncited","citations":[]}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "claim_missing_citation" in result.output
+
+
+def test_compile_fast_fails_claim_with_unknown_source_citation(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    claim_path = root / ".kb" / "claims" / "claims.jsonl"
+    claim_path.write_text(
+        '{"claim_id":"claim.one","topic_id":"topic.one","claim":"bad","citations":["kb://source/missing"]}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "claim_missing_source_reference" in result.output
