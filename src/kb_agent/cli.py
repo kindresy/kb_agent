@@ -3,9 +3,11 @@ from pathlib import Path
 import typer
 
 from kb_agent import __version__
+from kb_agent.accept import accept_learn_run
 from kb_agent.compile import compile_fast
 from kb_agent.health import build_health_report
 from kb_agent.layout import create_kb, find_kb_root
+from kb_agent.learn import run_learn
 from kb_agent.sources import ingest_path
 
 app = typer.Typer(
@@ -60,6 +62,46 @@ def ingest(path: Path | None = typer.Argument(None)) -> None:
     typer.echo(f"Ingested {len(records)} source file(s)")
     for record in records:
         typer.echo(f"- {record.source_id}: {record.path}")
+
+
+@app.command()
+def learn(
+    goal: str | None = typer.Option(None, "--goal", help="Learning goal for this run."),
+    sources: str | None = typer.Option(
+        None, "--sources", help="Comma-separated source ids."
+    ),
+) -> None:
+    """Run deterministic staged learning."""
+    try:
+        root = find_kb_root(Path.cwd())
+        source_ids = (
+            [item.strip() for item in sources.split(",") if item.strip()]
+            if sources
+            else None
+        )
+        run = run_learn(root, goal=goal, source_ids=source_ids)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Learn run: {run.run_id}")
+    typer.echo(f"Selected sources: {len(run.selected_sources)}")
+
+
+@app.command()
+def accept(run_id: str) -> None:
+    """Accept a staged learn run."""
+    try:
+        root = find_kb_root(Path.cwd())
+        result = accept_learn_run(root, run_id)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Accepted learn run: {result.run_id}")
+    typer.echo(f"Promoted notes: {len(result.promoted_notes)}")
+    for note in result.promoted_notes:
+        typer.echo(f"- {note}")
 
 
 @app.command()

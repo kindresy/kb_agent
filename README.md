@@ -54,6 +54,20 @@ The package is archived under `sources/manuals/pcie-book/`, and `kb compile --fa
 bash examples/phase1_demo.sh
 ```
 
+## Phase 2 deterministic learn
+
+```bash
+kb learn --goal "Build PCIe configuration notes"
+kb accept <learn_run_id>
+kb compile --fast
+kb health
+```
+
+Phase 2 uses deterministic local rules. It stages generated notes under
+`reviews/pending_notes/<run_id>/` and writes reports under
+`reports/learn/<run_id>/`. Accepted notes are promoted only through
+`kb accept <run_id>`.
+
 ## Design
 
 See `specs/2026-05-26-file-ai-knowledge-base-design.md`.
