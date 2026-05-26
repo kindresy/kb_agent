@@ -1,0 +1,110 @@
+import json
+from pathlib import Path
+
+from tests.conftest import run_cli
+
+
+def session_path_from(output: str, root: Path) -> Path:
+    line = next(line for line in output.splitlines() if line.startswith("Session: "))
+    return root / line.split("Session: ", 1)[1]
+
+
+def test_ask_prints_cited_answer_and_writes_session(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# Configuration Space\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    result = run_cli("ask", "What is Configuration Space?")
+
+    assert result.exit_code == 0
+    assert "# Answer" in result.output
+    assert "kb://source/manual" in result.output
+    session = session_path_from(result.output, tmp_path / "pcie")
+    assert session.parent.name == "questions"
+    assert (session / "question.md").is_file()
+    assert (session / "evidence_pack.json").is_file()
+    assert (session / "answer.md").is_file()
+    assert (session / "feedback_plan.md").is_file()
+    evidence = json.loads((session / "evidence_pack.json").read_text())
+    assert evidence["question"] == "What is Configuration Space?"
+    assert evidence["evidence"][0]["ref"] == "kb://source/manual"
+
+
+def test_ask_with_attachment_writes_debug_session_and_copies_file(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# BAR Assignment\nBAR notes\n", encoding="utf-8")
+    boot_log = tmp_path / "boot.log"
+    boot_log.write_text("BAR0 not assigned\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    result = run_cli("ask", "--with", str(boot_log), "Why was BAR0 not assigned?")
+
+    assert result.exit_code == 0
+    session = session_path_from(result.output, tmp_path / "pcie")
+    assert session.parent.name == "debug_cases"
+    copied = session / "attachments" / "boot.log"
+    assert copied.read_text() == "BAR0 not assigned\n"
+    evidence = json.loads((session / "evidence_pack.json").read_text())
+    assert evidence["attachments"][0]["original_path"] == str(boot_log)
+    assert evidence["attachments"][0]["copied_path"].endswith("attachments/boot.log")
+
+
+def test_ask_missing_attachment_fails_without_session(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("ask", "--with", str(tmp_path / "missing.log"), "Why fail?")
+
+    assert result.exit_code == 1
+    assert "attachment does not exist" in result.output
+    assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())
+    assert not any((tmp_path / "pcie" / "sessions" / "debug_cases").iterdir())
+
+
+def test_repeated_ask_allocates_unique_session_ids(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# Configuration Space\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    first = run_cli("ask", "What is Configuration Space?")
+    second = run_cli("ask", "What is Configuration Space?")
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    first_session = session_path_from(first.output, tmp_path / "pcie")
+    second_session = session_path_from(second.output, tmp_path / "pcie")
+    assert first_session != second_session
+    assert first_session.is_dir()
+    assert second_session.is_dir()
+
+
+def test_ask_retrieves_matching_claims_notes_and_chunks(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# BAR Assignment\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+    learn = run_cli("learn")
+    run_id = learn.output.split("Learn run:", 1)[1].splitlines()[0].strip()
+    assert run_cli("accept", run_id).exit_code == 0
+
+    result = run_cli("ask", "Explain BAR Assignment")
+
+    assert result.exit_code == 0
+    session = session_path_from(result.output, tmp_path / "pcie")
+    evidence = json.loads((session / "evidence_pack.json").read_text())
+    evidence_types = {item["type"] for item in evidence["evidence"]}
+    assert {"accepted_claim", "accepted_note", "source_chunk", "source"} <= evidence_types

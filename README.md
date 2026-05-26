@@ -68,6 +68,19 @@ Phase 2 uses deterministic local rules. It stages generated notes under
 `reports/learn/<run_id>/`. Accepted notes are promoted only through
 `kb accept <run_id>`.
 
+## Phase 3 deterministic ask
+
+```bash
+kb ask "What is Configuration Space?"
+kb ask --with ../boot.log "Why was BAR0 not assigned?"
+kb learn --from-session sessions/questions/<session_id>
+```
+
+Phase 3 uses deterministic local evidence retrieval. It saves questions,
+answers, evidence packs, attachments, and feedback plans under `sessions/`.
+Session feedback only enters accepted notes through `kb learn` and
+`kb accept`.
+
 ## Design
 
 See `specs/2026-05-26-file-ai-knowledge-base-design.md`.
