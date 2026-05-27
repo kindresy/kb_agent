@@ -81,6 +81,23 @@ answers, evidence packs, attachments, and feedback plans under `sessions/`.
 Session feedback only enters accepted notes through `kb learn` and
 `kb accept`.
 
+## Phase 4 graph and conflicts
+
+```bash
+kb graph export
+kb compile --fast
+kb health
+```
+
+Phase 4 exports deterministic graph artifacts from accepted sources, topics,
+claims, chunks, and notes. Re-running `kb graph export` writes stable node and
+edge files plus a graph report under `reports/graph/`.
+
+Conflict gates protect accepted knowledge. `kb compile --fast` fails when
+accepted claims conflict with each other. `kb accept <run_id>` blocks candidate
+claims that would conflict with accepted state or with each other, and writes
+review artifacts under `reviews/conflicts/<run_id>/`.
+
 ## Design
 
 See `specs/2026-05-26-file-ai-knowledge-base-design.md`.
