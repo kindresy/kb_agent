@@ -178,6 +178,8 @@ def test_ask_llm_without_api_key_fails_before_creating_session(
     tmp_path: Path, monkeypatch
 ):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr("kb_agent.llm.anthropic_provider.load_claude_settings_env", lambda: {})
     monkeypatch.chdir(tmp_path)
     assert run_cli("init", "pcie").exit_code == 0
     monkeypatch.chdir(tmp_path / "pcie")
@@ -185,7 +187,7 @@ def test_ask_llm_without_api_key_fails_before_creating_session(
     result = run_cli("ask", "--llm", "What is Configuration Space?")
 
     assert result.exit_code == 1
-    assert "ANTHROPIC_API_KEY" in result.output
+    assert "ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN" in result.output
     assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())
 
 
@@ -203,9 +205,12 @@ def test_run_ask_llm_provider_failure_does_not_leave_partial_session(
     monkeypatch.chdir(tmp_path / "pcie")
     assert run_cli("ingest", str(source)).exit_code == 0
 
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr("kb_agent.llm.anthropic_provider.load_claude_settings_env", lambda: {})
     result = run_cli("ask", "--llm", "Explain BAR Assignment")
     assert result.exit_code == 1
-    assert "ANTHROPIC_API_KEY" in result.output
+    assert "ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN" in result.output
     assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())
 
     with monkeypatch.context() as context:
