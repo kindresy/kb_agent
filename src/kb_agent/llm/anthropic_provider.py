@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from kb_agent.llm.base import LLMResponse
 from kb_agent.llm.prompts import build_ask_prompt
@@ -48,6 +48,7 @@ class AnthropicProvider:
         intent: str,
         evidence: list[dict[str, str]],
         attachments: list[dict[str, object]],
+        client_factory: Callable[[str], Any] | None = None,
     ) -> LLMResponse:
         try:
             from anthropic import Anthropic
@@ -63,12 +64,19 @@ class AnthropicProvider:
             evidence=evidence,
             attachments=attachments,
         )
-        client = Anthropic(api_key=self.api_key)
-        message = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        create_client = client_factory or (lambda api_key: Anthropic(api_key=api_key))
+        client = create_client(self.api_key)
+        try:
+            message = client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            raise ValueError(
+                "Anthropic API request failed. Check API key permissions, account "
+                f"access, and model availability for {self.model}: {exc}"
+            ) from exc
         text = _extract_text(message)
         if not text:
             raise ValueError("Anthropic returned an empty response")
@@ -81,4 +89,3 @@ def _extract_text(message: Any) -> str:
         if getattr(block, "type", None) == "text":
             parts.append(str(getattr(block, "text", "")))
     return "\n".join(part for part in parts if part).strip()
-

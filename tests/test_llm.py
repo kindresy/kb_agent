@@ -70,3 +70,26 @@ def test_anthropic_provider_rejects_invalid_max_tokens(monkeypatch):
 
     with pytest.raises(ValueError, match="KB_AGENT_LLM_MAX_TOKENS"):
         AnthropicProvider.from_env()
+
+
+def test_anthropic_provider_wraps_sdk_permission_errors(monkeypatch):
+    class PermissionDeniedError(Exception):
+        pass
+
+    class Messages:
+        def create(self, **kwargs):
+            raise PermissionDeniedError("Error code: 403 - Request not allowed")
+
+    class Client:
+        messages = Messages()
+
+    provider = AnthropicProvider(api_key="test-key")
+
+    with pytest.raises(ValueError, match="Anthropic API request failed"):
+        provider.answer(
+            question="What is BAR assignment?",
+            intent="concept",
+            evidence=[],
+            attachments=[],
+            client_factory=lambda api_key: Client(),
+        )
