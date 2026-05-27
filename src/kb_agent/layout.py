@@ -37,7 +37,6 @@ CANONICAL_DIRS = [
     "reviews/conflicts",
     "reviews/pending_notes",
     "skills",
-    "hooks",
     "tools",
     ".kb/chunks",
     ".kb/topics",

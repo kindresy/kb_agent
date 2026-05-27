@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from kb_agent.conflicts import detect_accepted_conflicts
 from kb_agent.jsonl import read_jsonl
 from kb_agent.layout import CANONICAL_DIRS
 from kb_agent.markdown import extract_kb_source_refs, extract_markdown_links
@@ -341,6 +342,18 @@ def check_claims(root: Path) -> list[Finding]:
     return findings
 
 
+def check_claim_conflicts(root: Path) -> list[Finding]:
+    return [
+        Finding(
+            "error",
+            "claim_conflict",
+            ".kb/claims/claims.jsonl",
+            f"accepted claims conflict: {conflict.conflict_id}",
+        )
+        for conflict in detect_accepted_conflicts(root)
+    ]
+
+
 def compile_fast(root: Path) -> CompileResult:
     findings = [
         *check_structure(root),
@@ -349,6 +362,7 @@ def compile_fast(root: Path) -> CompileResult:
         *check_citations(root),
         *check_markdown_links(root),
         *check_claims(root),
+        *check_claim_conflicts(root),
     ]
     status = (
         "failed"
