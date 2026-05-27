@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import run_cli
 
 
@@ -57,3 +59,28 @@ def test_health_reports_graph_and_conflict_metrics_after_graph_export(
     assert "Graph nodes:" in result.stdout
     assert "Graph edges:" in result.stdout
     assert "Conflicts: 0" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "summary_text",
+    [
+        "{",
+        "[]",
+        '{"node_count": "many", "edge_count": "few"}',
+    ],
+)
+def test_health_falls_back_to_zero_graph_counts_for_invalid_summary(
+    tmp_path: Path, monkeypatch, summary_text: str
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    graph_root = tmp_path / "pcie" / ".kb" / "graph"
+    graph_root.mkdir(parents=True, exist_ok=True)
+    (graph_root / "summary.json").write_text(summary_text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("health")
+
+    assert result.exit_code == 0
+    assert "Graph nodes: 0" in result.stdout
+    assert "Graph edges: 0" in result.stdout

@@ -24,8 +24,13 @@ def _load_graph_counts(root: Path) -> tuple[int, int]:
     if not summary_path.is_file():
         return 0, 0
 
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    return int(summary.get("node_count", 0)), int(summary.get("edge_count", 0))
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        if not isinstance(summary, dict):
+            return 0, 0
+        return int(summary.get("node_count", 0)), int(summary.get("edge_count", 0))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return 0, 0
 
 
 def build_health_report(root: Path) -> HealthReport:
