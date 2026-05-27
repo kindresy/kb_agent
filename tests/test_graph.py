@@ -23,13 +23,24 @@ def test_graph_export_writes_empty_graph_for_initialized_kb(
 
     assert result.exit_code == 0
     assert "Graph exported" in result.output
+    assert "Report: reports/graph/graph_report.md" in result.output
     graph_root = tmp_path / "pcie" / ".kb" / "graph"
     assert read_jsonl(graph_root / "nodes.jsonl") == []
     assert read_jsonl(graph_root / "edges.jsonl") == []
     summary = json.loads((graph_root / "summary.json").read_text())
     assert summary["node_count"] == 0
     assert summary["edge_count"] == 0
-    assert (tmp_path / "pcie" / "reports" / "graph" / "graph_report.md").is_file()
+    report = tmp_path / "pcie" / "reports" / "graph" / "graph_report.md"
+    assert report.is_file()
+    report_text = report.read_text()
+    assert "## Source Coverage" in report_text
+    assert "- Total sources: 0" in report_text
+    assert "- Linked sources: 0" in report_text
+    assert "- Unlinked sources: 0" in report_text
+    assert "## Claim Citation Coverage" in report_text
+    assert "- Total claims: 0" in report_text
+    assert "- Cited claims: 0" in report_text
+    assert "- Uncited claims: 0" in report_text
 
 
 def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
@@ -48,6 +59,7 @@ def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
     result = run_cli("graph", "export")
 
     assert result.exit_code == 0
+    assert "Report: reports/graph/graph_report.md" in result.output
     nodes = read_jsonl(tmp_path / "pcie" / ".kb" / "graph" / "nodes.jsonl")
     edges = read_jsonl(tmp_path / "pcie" / ".kb" / "graph" / "edges.jsonl")
     node_types = {node["type"] for node in nodes}
@@ -63,3 +75,14 @@ def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
     )
     assert summary["node_count"] == len(nodes)
     assert summary["edge_count"] == len(edges)
+    report_text = (
+        tmp_path / "pcie" / "reports" / "graph" / "graph_report.md"
+    ).read_text()
+    assert "## Source Coverage" in report_text
+    assert "- Total sources: 1" in report_text
+    assert "- Linked sources: 1" in report_text
+    assert "- Unlinked sources: 0" in report_text
+    assert "## Claim Citation Coverage" in report_text
+    assert "- Total claims: 1" in report_text
+    assert "- Cited claims: 1" in report_text
+    assert "- Uncited claims: 0" in report_text

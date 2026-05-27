@@ -226,6 +226,8 @@ def export_graph(root: Path) -> GraphExport:
 
     report_path = root / "reports" / "graph" / "graph_report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    source_coverage = _source_coverage(nodes, edges)
+    claim_citation_coverage = _claim_citation_coverage(nodes, edges)
     report_path.write_text(
         "\n".join(
             [
@@ -242,14 +244,62 @@ def export_graph(root: Path) -> GraphExport:
                 "",
                 *_count_lines(edge_counts),
                 "",
+                "## Source Coverage",
+                "",
+                f"- Total sources: {source_coverage['total_sources']}",
+                f"- Linked sources: {source_coverage['linked_sources']}",
+                f"- Unlinked sources: {source_coverage['unlinked_sources']}",
+                "",
+                "## Claim Citation Coverage",
+                "",
+                f"- Total claims: {claim_citation_coverage['total_claims']}",
+                f"- Cited claims: {claim_citation_coverage['cited_claims']}",
+                f"- Uncited claims: {claim_citation_coverage['uncited_claims']}",
+                "",
             ]
         ),
         encoding="utf-8",
     )
-    return GraphExport(nodes=nodes, edges=edges, report_path=report_path.as_posix())
+    return GraphExport(
+        nodes=nodes,
+        edges=edges,
+        report_path=report_path.relative_to(root).as_posix(),
+    )
 
 
 def _count_lines(counts: Counter[str]) -> list[str]:
     if not counts:
         return ["- none"]
     return [f"- {name}: {count}" for name, count in sorted(counts.items())]
+
+
+def _source_coverage(
+    nodes: list[GraphNode], edges: list[GraphEdge]
+) -> dict[str, int]:
+    source_node_ids = {node.node_id for node in nodes if node.type == "source"}
+    linked_source_ids = {
+        edge.to
+        for edge in edges
+        if edge.to in source_node_ids and edge.from_ != edge.to
+    }
+    return {
+        "total_sources": len(source_node_ids),
+        "linked_sources": len(linked_source_ids),
+        "unlinked_sources": len(source_node_ids - linked_source_ids),
+    }
+
+
+def _claim_citation_coverage(
+    nodes: list[GraphNode], edges: list[GraphEdge]
+) -> dict[str, int]:
+    claim_node_ids = {node.node_id for node in nodes if node.type == "claim"}
+    cited_claim_ids = {
+        edge.from_
+        for edge in edges
+        if edge.type == "claim_cites_source" and edge.from_ in claim_node_ids
+    }
+    return {
+        "total_claims": len(claim_node_ids),
+        "cited_claims": len(cited_claim_ids),
+        "uncited_claims": len(claim_node_ids - cited_claim_ids),
+    }
