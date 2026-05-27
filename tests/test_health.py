@@ -67,6 +67,7 @@ def test_health_reports_graph_and_conflict_metrics_after_graph_export(
         "{",
         "[]",
         '{"node_count": "many", "edge_count": "few"}',
+        '{"node_count": true, "edge_count": false}',
     ],
 )
 def test_health_falls_back_to_zero_graph_counts_for_invalid_summary(

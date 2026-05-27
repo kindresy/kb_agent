@@ -55,7 +55,6 @@ def test_init_creates_domain_layout(tmp_path: Path, monkeypatch):
         "reviews/conflicts",
         "reviews/pending_notes",
         "skills",
-        "hooks",
         "tools",
         ".kb/chunks",
         ".kb/topics",
@@ -66,6 +65,7 @@ def test_init_creates_domain_layout(tmp_path: Path, monkeypatch):
         ".kb/cache",
     ]:
         assert (root / directory).is_dir()
+    assert not (root / "hooks").exists()
 
     config = yaml.safe_load((root / "kb.yaml").read_text())
     assert config["domain"] == "pcie"

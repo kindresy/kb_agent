@@ -9,7 +9,7 @@ Phase 4 is split into smaller deliverables. This design covers only:
 - Phase 4.1: deterministic claim/topic graph skeleton.
 - Phase 4.2: deterministic conflict detector and accept/compile gates.
 
-This design intentionally excludes hook execution and PCIe domain skills. Those are Phase 4.3 and Phase 4.4, after the graph and conflict data model is stable.
+This design intentionally excludes PCIe domain skills. Those remain later work after the graph and conflict data model is stable.
 
 ## Goals
 

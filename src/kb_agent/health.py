@@ -28,8 +28,12 @@ def _load_graph_counts(root: Path) -> tuple[int, int]:
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         if not isinstance(summary, dict):
             return 0, 0
-        return int(summary.get("node_count", 0)), int(summary.get("edge_count", 0))
-    except (json.JSONDecodeError, TypeError, ValueError):
+        node_count = summary.get("node_count", 0)
+        edge_count = summary.get("edge_count", 0)
+        if type(node_count) is not int or type(edge_count) is not int:
+            return 0, 0
+        return node_count, edge_count
+    except json.JSONDecodeError:
         return 0, 0
 
 

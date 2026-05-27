@@ -1081,4 +1081,4 @@ Report:
 - Health metrics: Task 4.
 - README/demo: Task 5.
 - Final verification/push: Task 6.
-- Hooks and PCIe domain skills are intentionally excluded for Phase 4.3/4.4.
+- PCIe domain skills are intentionally excluded for later work.

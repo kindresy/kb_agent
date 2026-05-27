@@ -78,7 +78,6 @@ Each domain is a normal directory:
 │   ├── conflicts/
 │   └── pending_notes/
 ├── skills/
-├── hooks/
 ├── tools/
 └── .kb/
     ├── manifest.json
@@ -854,7 +853,6 @@ Includes:
 - topic graph
 - conflict detector
 - domain skills
-- hook system
 - graph export
 - advanced health metrics
 
@@ -863,7 +861,6 @@ Acceptance:
 - Conflicting claims are intercepted.
 - Claim types are enforced.
 - PCIe domain skills guide learning and debugging.
-- Hooks prevent bypassing critical gates.
 
 ## 14. Implementation Recommendations
 
@@ -881,7 +878,6 @@ Link checking: custom kb:// resolver
 Index storage: JSONL, optionally SQLite
 Vector search: optional later via LanceDB, Chroma, or sqlite-vec
 Testing: pytest
-Hooks: executable scripts declared in kb.yaml
 ```
 
 Do not require a vector database in the MVP. Start with:
@@ -905,8 +901,7 @@ Add embeddings after the file and citation discipline is working.
 6. Conflicts require explicit user decisions.
 7. Sessions are experience inputs, not direct note mutations.
 8. Skills define workflow discipline.
-9. Hooks enforce critical gates.
-10. Learning is topic-incremental, not whole-library summarization.
+9. Learning is topic-incremental, not whole-library summarization.
 
 ## 16. Open Implementation Decisions
 
