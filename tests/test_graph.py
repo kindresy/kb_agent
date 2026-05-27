@@ -12,7 +12,7 @@ def run_id_from(output: str) -> str:
     return output.split("Learn run:", 1)[1].splitlines()[0].strip()
 
 
-def test_graph_export_writes_empty_graph_for_initialized_kb(
+def test_graph_export_writes_graph_artifacts_for_initialized_kb(
     tmp_path: Path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
@@ -25,11 +25,17 @@ def test_graph_export_writes_empty_graph_for_initialized_kb(
     assert "Graph exported" in result.output
     assert "Report: reports/graph/graph_report.md" in result.output
     graph_root = tmp_path / "pcie" / ".kb" / "graph"
-    assert read_jsonl(graph_root / "nodes.jsonl") == []
+    nodes = read_jsonl(graph_root / "nodes.jsonl")
+    edges = read_jsonl(graph_root / "edges.jsonl")
+    assert {node["node_id"] for node in nodes} == {
+        "note:notes/_glossary.md",
+        "note:notes/_index.md",
+        "note:notes/_open_questions.md",
+    }
     assert read_jsonl(graph_root / "edges.jsonl") == []
     summary = json.loads((graph_root / "summary.json").read_text())
-    assert summary["node_count"] == 0
-    assert summary["edge_count"] == 0
+    assert summary["node_count"] == len(nodes)
+    assert summary["edge_count"] == len(edges)
     report = tmp_path / "pcie" / "reports" / "graph" / "graph_report.md"
     assert report.is_file()
     report_text = report.read_text()
@@ -55,6 +61,10 @@ def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
     learn = run_cli("learn")
     run_id = run_id_from(learn.output)
     assert run_cli("accept", run_id).exit_code == 0
+    debug_note = tmp_path / "pcie" / "notes" / "debug" / "bar_debug.md"
+    debug_note.write_text(
+        "# BAR Debug\n\nRelated source: kb://source/manual\n", encoding="utf-8"
+    )
 
     result = run_cli("graph", "export")
 
@@ -65,11 +75,19 @@ def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
     node_types = {node["type"] for node in nodes}
     edge_types = {edge["type"] for edge in edges}
     assert {"source", "topic", "claim", "chunk", "note"} <= node_types
+    assert "note:notes/debug/bar_debug.md" in {node["node_id"] for node in nodes}
     assert {
         "topic_from_source",
         "claim_about_topic",
         "claim_cites_source",
+        "note_mentions_source",
     } <= edge_types
+    assert {
+        "from": "note:notes/debug/bar_debug.md",
+        "to": "source:manual",
+        "type": "note_mentions_source",
+        "evidence": "manual",
+    } in edges
     summary = json.loads(
         (tmp_path / "pcie" / ".kb" / "graph" / "summary.json").read_text()
     )

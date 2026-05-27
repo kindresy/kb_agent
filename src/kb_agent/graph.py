@@ -57,7 +57,7 @@ def _chunk_paths(root: Path) -> list[Path]:
 
 
 def _note_paths(root: Path) -> list[Path]:
-    notes_root = root / "notes" / "concepts" / "generated"
+    notes_root = root / "notes"
     return sorted(notes_root.rglob("*.md")) if notes_root.is_dir() else []
 
 
