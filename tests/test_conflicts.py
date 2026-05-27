@@ -127,6 +127,43 @@ def test_accept_blocks_candidate_claims_that_conflict_with_accepted_claims(
     assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
 
 
+def test_accept_blocks_candidate_claims_that_conflict_with_each_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = initialize_kb_with_sources(
+        tmp_path, monkeypatch, ["candidate_a", "candidate_b"]
+    )
+    run_id = "learn_internal_conflict"
+    candidate_a = claim("candidate_a", "topic.bar", "BAR0 is assigned by firmware.")
+    candidate_b = claim(
+        "candidate_b", "topic.bar", "BAR0 is not assigned by firmware."
+    )
+    run_root = root / ".kb" / "learn_runs" / run_id
+    write_jsonl(run_root / "claims.jsonl", [candidate_a, candidate_b])
+    write_jsonl(run_root / "topics.jsonl", [{"topic_id": "topic.bar"}])
+    write_jsonl(run_root / "chunks.jsonl", [{"chunk_id": "chunk.one"}])
+    pending_note = root / "reviews" / "pending_notes" / run_id / "topic.bar.md"
+    pending_note.parent.mkdir(parents=True, exist_ok=True)
+    pending_note.write_text("# BAR\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+
+    result = run_cli("accept", run_id)
+
+    assert result.exit_code == 1
+    assert "reviews/conflicts/learn_internal_conflict/conflict_report.md" in result.output
+    conflict_root = root / "reviews" / "conflicts" / run_id
+    assert (conflict_root / "conflicts.jsonl").is_file()
+    assert (conflict_root / "conflict_report.md").is_file()
+    conflicts = read_jsonl(conflict_root / "conflicts.jsonl")
+    assert conflicts[0]["rule"] == "negation_polarity"
+    assert conflicts[0]["accepted_claim_id"] == "candidate_a"
+    assert conflicts[0]["candidate_claim_id"] == "candidate_b"
+    assert read_jsonl_or_empty(root / ".kb" / "claims" / "claims.jsonl") == []
+    assert read_jsonl_or_empty(root / ".kb" / "topics" / "topics.jsonl") == []
+    assert read_jsonl_or_empty(root / ".kb" / "chunks" / "chunks.jsonl") == []
+    assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
+
+
 def test_accept_malformed_topics_does_not_partially_promote(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

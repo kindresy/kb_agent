@@ -122,6 +122,29 @@ def conflict_rule(accepted: dict, candidate: dict) -> str | None:
     return None
 
 
+def make_claim_conflict(
+    left: dict,
+    right: dict,
+    run_id: str,
+    conflict_number: int,
+    rule: str,
+    message: str,
+) -> ClaimConflict:
+    return ClaimConflict(
+        conflict_id=f"conflict.{run_id}.{conflict_number}",
+        rule=rule,
+        severity="error",
+        topic_id=str(left.get("topic_id", "")),
+        accepted_claim_id=str(left.get("claim_id", "<missing>")),
+        candidate_claim_id=str(right.get("claim_id", "<missing>")),
+        accepted_claim=str(left.get("claim", "")),
+        candidate_claim=str(right.get("claim", "")),
+        accepted_citations=[str(item) for item in left.get("citations") or []],
+        candidate_citations=[str(item) for item in right.get("citations") or []],
+        message=message,
+    )
+
+
 def detect_claim_conflicts(
     accepted_claims: list[dict], candidate_claims: list[dict], run_id: str
 ) -> list[ClaimConflict]:
@@ -132,22 +155,35 @@ def detect_claim_conflicts(
             if rule is None:
                 continue
             conflicts.append(
-                ClaimConflict(
-                    conflict_id=f"conflict.{run_id}.{len(conflicts) + 1}",
-                    rule=rule,
-                    severity="error",
-                    topic_id=str(candidate.get("topic_id", "")),
-                    accepted_claim_id=str(accepted.get("claim_id", "<missing>")),
-                    candidate_claim_id=str(candidate.get("claim_id", "<missing>")),
-                    accepted_claim=str(accepted.get("claim", "")),
-                    candidate_claim=str(candidate.get("claim", "")),
-                    accepted_citations=[
-                        str(item) for item in accepted.get("citations") or []
-                    ],
-                    candidate_citations=[
-                        str(item) for item in candidate.get("citations") or []
-                    ],
+                make_claim_conflict(
+                    accepted,
+                    candidate,
+                    run_id,
+                    len(conflicts) + 1,
+                    rule,
                     message="candidate claim conflicts with an accepted claim",
+                )
+            )
+    return conflicts
+
+
+def detect_would_be_accepted_conflicts(
+    accepted_claims: list[dict], candidate_claims: list[dict], run_id: str
+) -> list[ClaimConflict]:
+    conflicts = detect_claim_conflicts(accepted_claims, candidate_claims, run_id)
+    for index, left in enumerate(candidate_claims):
+        for right in candidate_claims[index + 1 :]:
+            rule = conflict_rule(left, right)
+            if rule is None:
+                continue
+            conflicts.append(
+                make_claim_conflict(
+                    left,
+                    right,
+                    run_id,
+                    len(conflicts) + 1,
+                    rule,
+                    message="candidate claims conflict with each other",
                 )
             )
     return conflicts

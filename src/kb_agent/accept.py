@@ -6,7 +6,7 @@ from pathlib import Path
 
 from kb_agent.compile import compile_fast
 from kb_agent.conflicts import (
-    detect_claim_conflicts,
+    detect_would_be_accepted_conflicts,
     load_accepted_claims,
     load_run_claims,
     validate_run_id,
@@ -56,7 +56,7 @@ def accept_learn_run(root: Path, run_id: str) -> AcceptResult:
     if errors:
         raise ValueError("\n".join(errors))
 
-    conflicts = detect_claim_conflicts(
+    conflicts = detect_would_be_accepted_conflicts(
         load_accepted_claims(root), load_run_claims(root, run_id), run_id
     )
     if conflicts:
