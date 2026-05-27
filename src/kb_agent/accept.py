@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from kb_agent.compile import compile_fast
+from kb_agent.conflicts import (
+    detect_claim_conflicts,
+    load_accepted_claims,
+    load_run_claims,
+    write_conflict_artifacts,
+)
 from kb_agent.jsonl import append_jsonl, read_jsonl
 from kb_agent.markdown import extract_kb_source_refs
 from kb_agent.sources import load_source_index
@@ -47,6 +53,13 @@ def accept_learn_run(root: Path, run_id: str) -> AcceptResult:
     errors = validate_run_claims(root, run_id)
     if errors:
         raise ValueError("\n".join(errors))
+
+    conflicts = detect_claim_conflicts(
+        load_accepted_claims(root), load_run_claims(root, run_id), run_id
+    )
+    if conflicts:
+        report_path = write_conflict_artifacts(root, run_id, conflicts)
+        raise ValueError(f"claim conflict report written: {report_path}")
 
     compile_result = compile_fast(root)
     if not compile_result.passed:

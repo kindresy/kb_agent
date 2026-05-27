@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from kb_agent.conflicts import detect_claim_conflicts, write_conflict_artifacts
+from kb_agent.sources import SourceRecord, write_source_index
+from tests.conftest import run_cli
 
 
 def claim(claim_id: str, topic_id: str, text: str) -> dict:
@@ -15,6 +17,95 @@ def claim(claim_id: str, topic_id: str, text: str) -> dict:
         "citations": [f"kb://source/{claim_id}"],
         "confidence": "deterministic",
     }
+
+
+def write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows)
+        + ("\n" if rows else ""),
+        encoding="utf-8",
+    )
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def write_source(root: Path, source_id: str) -> SourceRecord:
+    path = root / "sources" / "manuals" / f"{source_id}.md"
+    path.write_text(f"# {source_id}\n", encoding="utf-8")
+    return SourceRecord(
+        source_id=source_id,
+        type="manual",
+        title=source_id,
+        path=path.relative_to(root).as_posix(),
+        original_path=str(path),
+        hash=f"sha256:{source_id}",
+    )
+
+
+def initialize_kb_with_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_ids: list[str]
+) -> Path:
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    root = tmp_path / "pcie"
+    write_source_index(root, [write_source(root, source_id) for source_id in source_ids])
+    return root
+
+
+def test_compile_fast_fails_when_accepted_claims_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = initialize_kb_with_sources(tmp_path, monkeypatch, ["accepted", "candidate"])
+    write_jsonl(
+        root / ".kb" / "claims" / "claims.jsonl",
+        [
+            claim("accepted", "topic.bar", "BAR0 is assigned by firmware."),
+            claim("candidate", "topic.bar", "BAR0 is not assigned by firmware."),
+        ],
+    )
+    monkeypatch.chdir(root)
+
+    result = run_cli("compile", "--fast")
+
+    assert result.exit_code == 1
+    assert "claim_conflict" in result.output
+    state = json.loads((root / ".kb" / "compile_state.json").read_text())
+    assert state["status"] == "failed"
+    assert any(finding["code"] == "claim_conflict" for finding in state["findings"])
+
+
+def test_accept_blocks_candidate_claims_that_conflict_with_accepted_claims(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = initialize_kb_with_sources(tmp_path, monkeypatch, ["accepted", "candidate"])
+    run_id = "learn_conflict"
+    accepted_claim = claim("accepted", "topic.bar", "BAR0 is assigned by firmware.")
+    candidate_claim = claim(
+        "candidate", "topic.bar", "BAR0 is not assigned by firmware."
+    )
+    write_jsonl(root / ".kb" / "claims" / "claims.jsonl", [accepted_claim])
+    run_root = root / ".kb" / "learn_runs" / run_id
+    write_jsonl(run_root / "claims.jsonl", [candidate_claim])
+    write_jsonl(run_root / "topics.jsonl", [{"topic_id": "topic.bar"}])
+    write_jsonl(run_root / "chunks.jsonl", [{"chunk_id": "chunk.one"}])
+    pending_note = root / "reviews" / "pending_notes" / run_id / "topic.bar.md"
+    pending_note.parent.mkdir(parents=True, exist_ok=True)
+    pending_note.write_text("# BAR\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+
+    result = run_cli("accept", run_id)
+
+    assert result.exit_code == 1
+    assert "reviews/conflicts/learn_conflict/conflict_report.md" in result.output
+    conflict_root = root / "reviews" / "conflicts" / run_id
+    assert (conflict_root / "conflicts.jsonl").is_file()
+    assert (conflict_root / "conflict_report.md").is_file()
+    assert read_jsonl(conflict_root / "conflicts.jsonl")[0]["rule"] == "negation_polarity"
+    assert read_jsonl(root / ".kb" / "claims" / "claims.jsonl") == [accepted_claim]
+    assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
 
 
 def test_detects_negation_polarity_conflict():
