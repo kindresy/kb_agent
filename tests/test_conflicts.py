@@ -127,6 +127,47 @@ def test_accept_blocks_candidate_claims_that_conflict_with_accepted_claims(
     assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
 
 
+def test_accept_malformed_topics_does_not_partially_promote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = initialize_kb_with_sources(tmp_path, monkeypatch, ["candidate"])
+    run_id = "learn_bad_topics"
+    candidate_claim = claim("candidate", "topic.bar", "BAR0 is assigned by firmware.")
+    run_root = root / ".kb" / "learn_runs" / run_id
+    write_jsonl(run_root / "claims.jsonl", [candidate_claim])
+    (run_root / "topics.jsonl").write_text("{not valid json}\n", encoding="utf-8")
+    write_jsonl(run_root / "chunks.jsonl", [{"chunk_id": "chunk.one"}])
+    pending_note = root / "reviews" / "pending_notes" / run_id / "topic.bar.md"
+    pending_note.parent.mkdir(parents=True, exist_ok=True)
+    pending_note.write_text("# BAR\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+
+    result = run_cli("accept", run_id)
+
+    assert result.exit_code == 1
+    assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
+    assert read_jsonl_or_empty(root / ".kb" / "topics" / "topics.jsonl") == []
+    assert read_jsonl_or_empty(root / ".kb" / "chunks" / "chunks.jsonl") == []
+    assert read_jsonl_or_empty(root / ".kb" / "claims" / "claims.jsonl") == []
+
+
+@pytest.mark.parametrize("run_id", ["", "../outside", "nested/run", "/absolute", ".."])
+def test_accept_rejects_invalid_pathlike_run_id_before_path_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_id: str
+):
+    root = initialize_kb_with_sources(tmp_path, monkeypatch, ["candidate"])
+    traversal_run = root / ".kb" / "outside"
+    traversal_run.mkdir(parents=True)
+    write_jsonl(traversal_run / "claims.jsonl", [])
+    (root / "reviews" / "outside").mkdir(parents=True)
+    monkeypatch.chdir(root)
+
+    result = run_cli("accept", run_id)
+
+    assert result.exit_code == 1
+    assert "run_id must be a safe single path component" in result.output
+
+
 def test_detects_negation_polarity_conflict():
     accepted = [claim("accepted", "topic.bar", "BAR0 is assigned by firmware.")]
     candidate = [claim("candidate", "topic.bar", "BAR0 is not assigned by firmware.")]

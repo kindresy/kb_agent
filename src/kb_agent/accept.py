@@ -9,6 +9,7 @@ from kb_agent.conflicts import (
     detect_claim_conflicts,
     load_accepted_claims,
     load_run_claims,
+    validate_run_id,
     write_conflict_artifacts,
 )
 from kb_agent.jsonl import append_jsonl, read_jsonl
@@ -43,6 +44,7 @@ def validate_run_claims(root: Path, run_id: str) -> list[str]:
 
 
 def accept_learn_run(root: Path, run_id: str) -> AcceptResult:
+    validate_run_id(run_id)
     run_root = root / ".kb" / "learn_runs" / run_id
     pending_root = root / "reviews" / "pending_notes" / run_id
     if not run_root.is_dir():
@@ -69,24 +71,29 @@ def accept_learn_run(root: Path, run_id: str) -> AcceptResult:
         ]
         raise ValueError("compile gate failed before accept:\n" + "\n".join(messages))
 
+    topics = read_jsonl(run_root / "topics.jsonl")
+    chunks = read_jsonl(run_root / "chunks.jsonl")
+    claims = read_jsonl(run_root / "claims.jsonl")
+    pending_notes = sorted(pending_root.glob("*.md"))
+
     accepted_root = root / "notes" / "concepts" / "generated"
     accepted_root.mkdir(parents=True, exist_ok=True)
     promoted: list[str] = []
-    for note in sorted(pending_root.glob("*.md")):
+    for note in pending_notes:
         destination = accepted_root / note.name
         shutil.copy2(note, destination)
         promoted.append(destination.relative_to(root).as_posix())
 
     append_jsonl(
         root / ".kb" / "topics" / "topics.jsonl",
-        read_jsonl(run_root / "topics.jsonl"),
+        topics,
     )
     append_jsonl(
         root / ".kb" / "chunks" / "chunks.jsonl",
-        read_jsonl(run_root / "chunks.jsonl"),
+        chunks,
     )
     append_jsonl(
         root / ".kb" / "claims" / "claims.jsonl",
-        read_jsonl(run_root / "claims.jsonl"),
+        claims,
     )
     return AcceptResult(run_id, promoted)
