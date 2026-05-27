@@ -348,10 +348,7 @@ def check_claim_conflicts(root: Path) -> list[Finding]:
             "error",
             "claim_conflict",
             ".kb/claims/claims.jsonl",
-            (
-                f"{conflict.rule}: {conflict.accepted_claim_id} conflicts with "
-                f"{conflict.candidate_claim_id}"
-            ),
+            f"accepted claims conflict: {conflict.conflict_id}",
         )
         for conflict in detect_accepted_conflicts(root)
     ]

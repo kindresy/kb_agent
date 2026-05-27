@@ -32,6 +32,12 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def read_jsonl_or_empty(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return read_jsonl(path)
+
+
 def write_source(root: Path, source_id: str) -> SourceRecord:
     path = root / "sources" / "manuals" / f"{source_id}.md"
     path.write_text(f"# {source_id}\n", encoding="utf-8")
@@ -72,9 +78,20 @@ def test_compile_fast_fails_when_accepted_claims_conflict(
 
     assert result.exit_code == 1
     assert "claim_conflict" in result.output
+    assert "accepted claims conflict: conflict.accepted.1" in result.output
     state = json.loads((root / ".kb" / "compile_state.json").read_text())
     assert state["status"] == "failed"
-    assert any(finding["code"] == "claim_conflict" for finding in state["findings"])
+    conflict_findings = [
+        finding for finding in state["findings"] if finding["code"] == "claim_conflict"
+    ]
+    assert conflict_findings == [
+        {
+            "severity": "error",
+            "code": "claim_conflict",
+            "path": ".kb/claims/claims.jsonl",
+            "message": "accepted claims conflict: conflict.accepted.1",
+        }
+    ]
 
 
 def test_accept_blocks_candidate_claims_that_conflict_with_accepted_claims(
@@ -105,6 +122,8 @@ def test_accept_blocks_candidate_claims_that_conflict_with_accepted_claims(
     assert (conflict_root / "conflict_report.md").is_file()
     assert read_jsonl(conflict_root / "conflicts.jsonl")[0]["rule"] == "negation_polarity"
     assert read_jsonl(root / ".kb" / "claims" / "claims.jsonl") == [accepted_claim]
+    assert read_jsonl_or_empty(root / ".kb" / "topics" / "topics.jsonl") == []
+    assert read_jsonl_or_empty(root / ".kb" / "chunks" / "chunks.jsonl") == []
     assert not (root / "notes" / "concepts" / "generated" / "topic.bar.md").exists()
 
 
