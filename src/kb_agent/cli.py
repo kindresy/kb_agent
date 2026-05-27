@@ -6,6 +6,7 @@ from kb_agent import __version__
 from kb_agent.accept import accept_learn_run
 from kb_agent.ask import run_ask
 from kb_agent.compile import compile_fast
+from kb_agent.graph import export_graph
 from kb_agent.health import build_health_report
 from kb_agent.layout import create_kb, find_kb_root
 from kb_agent.learn import run_learn
@@ -16,6 +17,8 @@ app = typer.Typer(
     help="Local file-based knowledge base manager.",
     no_args_is_help=True,
 )
+graph_app = typer.Typer(help="Build and export KB graph artifacts.")
+app.add_typer(graph_app, name="graph")
 
 
 def _version_callback(value: bool) -> None:
@@ -142,6 +145,22 @@ def health() -> None:
     typer.echo(f"Health: {report.status}")
     typer.echo(f"Sources: {report.source_count}")
     typer.echo(f"Findings: {report.finding_count}")
+
+
+@graph_app.command(name="export")
+def graph_export() -> None:
+    """Export deterministic graph artifacts."""
+    try:
+        root = find_kb_root(Path.cwd())
+        result = export_graph(root)
+    except FileNotFoundError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+
+    typer.echo(
+        f"Graph exported: {len(result.nodes)} node(s), {len(result.edges)} edge(s)"
+    )
+    typer.echo(f"Report: {result.report_path}")
 
 
 @app.command(name="compile")
