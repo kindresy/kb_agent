@@ -380,6 +380,7 @@ def run_learn_from_session(root: Path, session_path: Path, goal: str | None) -> 
     question_text = question_path.read_text(encoding="utf-8", errors="replace")
     answer_text = answer_path.read_text(encoding="utf-8", errors="replace")
     evidence_pack = json.loads(evidence_path.read_text(encoding="utf-8"))
+    answer_mode = evidence_pack.get("answer_mode", "deterministic")
     source_id = selected[0].source_id if selected else "session"
     citation = f"kb://source/{source_id}"
     for item in evidence_pack.get("evidence", []):
@@ -400,16 +401,35 @@ def run_learn_from_session(root: Path, session_path: Path, goal: str | None) -> 
         "priority": "normal",
         "citations": [citation],
     }
-    chunk_text = f"{question_text}\n\n{answer_text}"[:1000]
+    if answer_mode == "llm":
+        chunk_kind = "session_question_and_evidence"
+        chunk_text = (
+            question_text
+            + "\n\nEvidence:\n"
+            + json.dumps(
+                evidence_pack.get("evidence", []),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )[:1000]
+        confidence = "llm_session_unverified"
+    else:
+        chunk_kind = "session_summary"
+        chunk_text = f"{question_text}\n\n{answer_text}"[:1000]
+        confidence = "deterministic"
     chunk = {
         "chunk_id": f"chunk.session_{slug(session_dir.name)}.1",
         "source_id": source_id,
         "source_path": session_dir.relative_to(root).as_posix(),
         "topic_id": topic_id,
-        "kind": "session_summary",
+        "kind": chunk_kind,
         "text": chunk_text,
         "hash": stable_hash(chunk_text),
         "citation": citation,
+        "answer_mode": answer_mode,
+        "llm_provider": evidence_pack.get("llm_provider"),
+        "llm_model": evidence_pack.get("llm_model"),
     }
     claim = {
         "claim_id": f"claim.session_{slug(session_dir.name)}.1",
@@ -417,7 +437,8 @@ def run_learn_from_session(root: Path, session_path: Path, goal: str | None) -> 
         "type": "session_observation",
         "claim": f"The saved ask session {session_dir.name} contains reusable learning material.",
         "citations": [citation],
-        "confidence": "deterministic",
+        "confidence": confidence,
+        "answer_mode": answer_mode,
     }
     profile = {
         "source_id": source_id,

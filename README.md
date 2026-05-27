@@ -98,6 +98,37 @@ accepted claims conflict with each other. `kb accept <run_id>` blocks candidate
 claims that would conflict with accepted state or with each other, and writes
 review artifacts under `reviews/conflicts/<run_id>/`.
 
+## Phase 5 optional LLM ask
+
+`kb ask` remains deterministic by default. To use Claude for answer generation:
+
+```bash
+export ANTHROPIC_API_KEY="..."
+kb ask --llm "Explain PCIe BAR assignment"
+```
+
+Optional model controls:
+
+```bash
+export KB_AGENT_LLM_MODEL=claude-sonnet-4-20250514
+export KB_AGENT_LLM_MAX_TOKENS=2048
+kb ask --llm --model claude-sonnet-4-20250514 "Why was BAR0 not assigned?"
+```
+
+LLM answers are saved only into the ask session. They are generated from the
+same local evidence pack used by deterministic ask, including bounded evidence
+excerpts. If an LLM call fails, `kb-agent` removes the partial session.
+
+Promote useful findings through the existing review path:
+
+```bash
+kb learn --from-session sessions/questions/<session_id>
+kb accept <learn_run_id>
+```
+
+LLM session learning preserves `answer_mode=llm` provenance and does not treat
+the LLM answer itself as deterministic source truth.
+
 ## Design
 
 See `specs/2026-05-26-file-ai-knowledge-base-design.md`.

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from kb_agent.ask import MAX_SOURCE_EXCERPT_BYTES, run_ask
+from kb_agent.llm.base import LLMResponse
 from tests.conftest import run_cli
 
 
@@ -30,6 +32,9 @@ def test_ask_prints_cited_answer_and_writes_session(tmp_path: Path, monkeypatch)
     assert (session / "feedback_plan.md").is_file()
     evidence = json.loads((session / "evidence_pack.json").read_text())
     assert evidence["question"] == "What is Configuration Space?"
+    assert evidence["answer_mode"] == "deterministic"
+    assert evidence["llm_provider"] is None
+    assert evidence["llm_model"] is None
     assert evidence["evidence"][0]["ref"] == "kb://source/manual"
 
 
@@ -108,3 +113,113 @@ def test_ask_retrieves_matching_claims_notes_and_chunks(tmp_path: Path, monkeypa
     evidence = json.loads((session / "evidence_pack.json").read_text())
     evidence_types = {item["type"] for item in evidence["evidence"]}
     assert {"accepted_claim", "accepted_note", "source_chunk", "source"} <= evidence_types
+
+
+def test_run_ask_llm_mode_writes_provider_answer_and_metadata(
+    tmp_path: Path, monkeypatch
+):
+    class FakeProvider:
+        def answer(self, *, question, intent, evidence, attachments):
+            assert question == "Explain BAR Assignment"
+            assert intent == "concept"
+            assert evidence
+            assert attachments == []
+            return LLMResponse(
+                text="# Answer\n\nLLM cited answer using kb://source/manual",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+            )
+
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# BAR Assignment\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    result = run_ask(
+        tmp_path / "pcie",
+        "Explain BAR Assignment",
+        use_llm=True,
+        llm_provider=FakeProvider(),
+    )
+
+    session = tmp_path / "pcie" / result.session_path
+    assert result.answer == "# Answer\n\nLLM cited answer using kb://source/manual"
+    assert (session / "answer.md").read_text(encoding="utf-8") == result.answer
+    evidence = json.loads((session / "evidence_pack.json").read_text())
+    assert evidence["answer_mode"] == "llm"
+    assert evidence["llm_provider"] == "anthropic"
+    assert evidence["llm_model"] == "claude-sonnet-4-20250514"
+    assert evidence["evidence"][0]["excerpt"] == "# BAR Assignment\nBAR notes"
+
+
+def test_ask_source_excerpt_is_bounded_for_large_text_sources(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "large_manual.md"
+    source.write_text("# BAR Assignment\n" + ("BAR notes\n" * 20_000), encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    result = run_cli("ask", "Explain BAR Assignment")
+
+    assert result.exit_code == 0
+    session = session_path_from(result.output, tmp_path / "pcie")
+    evidence = json.loads((session / "evidence_pack.json").read_text())
+    excerpt = evidence["evidence"][0]["excerpt"]
+    assert len(excerpt.encode("utf-8")) < MAX_SOURCE_EXCERPT_BYTES
+    assert excerpt.endswith("...")
+
+
+def test_ask_llm_without_api_key_fails_before_creating_session(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    monkeypatch.chdir(tmp_path / "pcie")
+
+    result = run_cli("ask", "--llm", "What is Configuration Space?")
+
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())
+
+
+def test_run_ask_llm_provider_failure_does_not_leave_partial_session(
+    tmp_path: Path, monkeypatch
+):
+    class FailingProvider:
+        def answer(self, *, question, intent, evidence, attachments):
+            raise ValueError("provider failed")
+
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# BAR Assignment\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+
+    result = run_cli("ask", "--llm", "Explain BAR Assignment")
+    assert result.exit_code == 1
+    assert "ANTHROPIC_API_KEY" in result.output
+    assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())
+
+    with monkeypatch.context() as context:
+        context.setenv("ANTHROPIC_API_KEY", "test-key")
+        try:
+            run_ask(
+                tmp_path / "pcie",
+                "Explain BAR Assignment",
+                use_llm=True,
+                llm_provider=FailingProvider(),
+            )
+        except ValueError as exc:
+            assert "provider failed" in str(exc)
+        else:
+            raise AssertionError("provider failure should raise ValueError")
+
+    assert not any((tmp_path / "pcie" / "sessions" / "questions").iterdir())

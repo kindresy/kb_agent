@@ -103,11 +103,17 @@ def ask(
     with_: list[Path] | None = typer.Option(
         None, "--with", help="Attach a log, code file, dump, or screenshot."
     ),
+    llm: bool = typer.Option(
+        False, "--llm", help="Use configured LLM provider for answer generation."
+    ),
+    model: str | None = typer.Option(
+        None, "--model", help="Override LLM model for this answer."
+    ),
 ) -> None:
-    """Ask a deterministic cited question and save the session."""
+    """Ask a cited question and save the session."""
     try:
         root = find_kb_root(Path.cwd())
-        result = run_ask(root, question, with_ or [])
+        result = run_ask(root, question, with_ or [], use_llm=llm, model=model)
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1)

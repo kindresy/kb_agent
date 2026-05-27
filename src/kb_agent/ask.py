@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 
 from kb_agent.jsonl import read_jsonl
+from kb_agent.llm.base import LLMProvider
+from kb_agent.llm.anthropic_provider import AnthropicProvider
 from kb_agent.markdown import extract_kb_source_refs
 from kb_agent.sources import load_source_index
 
@@ -35,6 +37,23 @@ DEBUG_WORDS = {
     "dump",
     "register",
 }
+
+TEXT_EXCERPT_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".html",
+    ".htm",
+    ".log",
+    ".md",
+    ".markdown",
+    ".py",
+    ".rs",
+    ".txt",
+}
+MAX_SOURCE_EXCERPT_BYTES = 64 * 1024
 
 
 def new_session_id(now: datetime | None = None) -> str:
@@ -113,6 +132,27 @@ def overlaps(question_tokens: set[str], text: str) -> bool:
     return bool(question_tokens & tokens(text))
 
 
+def text_excerpt(text: str, limit: int = 800) -> str:
+    normalized = re.sub(r"\s+\n", "\n", text).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def source_excerpt(root: Path, relative_path: str) -> str:
+    source_path = root / relative_path
+    if not source_path.is_file():
+        return ""
+    if source_path.suffix.lower() not in TEXT_EXCERPT_SUFFIXES:
+        return ""
+    try:
+        with source_path.open("rb") as file:
+            data = file.read(MAX_SOURCE_EXCERPT_BYTES)
+        return text_excerpt(data.decode("utf-8", errors="replace"))
+    except OSError:
+        return ""
+
+
 def retrieve_evidence(
     root: Path, question: str, attachments: list[dict[str, object]]
 ) -> list[dict[str, str]]:
@@ -132,6 +172,7 @@ def retrieve_evidence(
                         "ref": str(claim.get("claim_id", "<missing>")),
                         "why_relevant": "claim text matched question terms",
                         "citation": str(citations[0]) if citations else "",
+                        "excerpt": text_excerpt(str(claim.get("claim", ""))),
                     }
                 )
 
@@ -147,6 +188,7 @@ def retrieve_evidence(
                         "ref": note.relative_to(root).as_posix(),
                         "why_relevant": "note text matched question terms",
                         "citation": f"kb://source/{refs[0]}" if refs else "",
+                        "excerpt": text_excerpt(text),
                     }
                 )
 
@@ -161,6 +203,7 @@ def retrieve_evidence(
                         "type": "source_chunk",
                         "ref": str(chunk.get("citation", "")),
                         "why_relevant": "chunk text matched question terms",
+                        "excerpt": text_excerpt(str(chunk.get("text", ""))),
                     }
                 )
 
@@ -172,6 +215,7 @@ def retrieve_evidence(
                     "type": "source",
                     "ref": f"kb://source/{record.source_id}",
                     "why_relevant": "source metadata matched question terms",
+                    "excerpt": source_excerpt(root, record.path),
                 }
             )
 
@@ -190,6 +234,7 @@ def retrieve_evidence(
                     "type": "source",
                     "ref": ref,
                     "why_relevant": "source referenced by retrieved evidence",
+                    "excerpt": source_excerpt(root, record.path),
                 }
             )
 
@@ -200,6 +245,7 @@ def retrieve_evidence(
                     "type": "attachment",
                     "ref": str(attachment["copied_path"]),
                     "why_relevant": "attachment name matched question terms",
+                    "excerpt": source_excerpt(root, str(attachment["copied_path"])),
                 }
             )
 
@@ -210,6 +256,7 @@ def retrieve_evidence(
                 "type": "source",
                 "ref": f"kb://source/{first.source_id}",
                 "why_relevant": "fallback source evidence",
+                "excerpt": source_excerpt(root, first.path),
             }
         )
     return evidence
@@ -298,37 +345,66 @@ def write_feedback_plan(root: Path, session_dir: Path) -> None:
     )
 
 
-def run_ask(root: Path, question: str, attachment_paths: list[Path] | None = None) -> AskResult:
+def run_ask(
+    root: Path,
+    question: str,
+    attachment_paths: list[Path] | None = None,
+    *,
+    use_llm: bool = False,
+    model: str | None = None,
+    llm_provider: LLMProvider | None = None,
+) -> AskResult:
     attachment_paths = attachment_paths or []
     validate_attachments(attachment_paths)
     intent = classify_intent(question, bool(attachment_paths))
+    if use_llm and llm_provider is None:
+        llm_provider = AnthropicProvider.from_env(model=model)
     session_parent = "debug_cases" if intent == "debug" else "questions"
     session_id, session_dir = allocate_session_dir(root, session_parent)
     session_dir.mkdir(parents=True, exist_ok=False)
 
-    attachments = copy_attachments(root, session_dir, attachment_paths)
-    evidence = retrieve_evidence(root, question, attachments)
-    answer = render_answer(question, intent, evidence)
+    try:
+        attachments = copy_attachments(root, session_dir, attachment_paths)
+        evidence = retrieve_evidence(root, question, attachments)
+        llm_response = None
+        if use_llm:
+            if llm_provider is None:
+                raise ValueError("LLM provider is required when use_llm is true")
+            llm_response = llm_provider.answer(
+                question=question,
+                intent=intent,
+                evidence=evidence,
+                attachments=attachments,
+            )
+            answer = llm_response.text
+        else:
+            answer = render_answer(question, intent, evidence)
 
-    (session_dir / "question.md").write_text(
-        f"# Question\n\n{question}\n\nIntent: `{intent}`\n", encoding="utf-8"
-    )
-    (session_dir / "evidence_pack.json").write_text(
-        json.dumps(
-            {
-                "session_id": session_id,
-                "question": question,
-                "intent": intent,
-                "attachments": attachments,
-                "evidence": evidence,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
+        (session_dir / "question.md").write_text(
+            f"# Question\n\n{question}\n\nIntent: `{intent}`\n", encoding="utf-8"
         )
-        + "\n",
-        encoding="utf-8",
-    )
-    (session_dir / "answer.md").write_text(answer, encoding="utf-8")
-    write_feedback_plan(root, session_dir)
+        (session_dir / "evidence_pack.json").write_text(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "question": question,
+                    "intent": intent,
+                    "answer_mode": "llm" if use_llm else "deterministic",
+                    "llm_provider": llm_response.provider if llm_response else None,
+                    "llm_model": llm_response.model if llm_response else None,
+                    "attachments": attachments,
+                    "evidence": evidence,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (session_dir / "answer.md").write_text(answer, encoding="utf-8")
+        write_feedback_plan(root, session_dir)
+    except Exception:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        raise
     return AskResult(session_id, session_dir.relative_to(root).as_posix(), answer)

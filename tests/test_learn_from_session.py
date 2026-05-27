@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from kb_agent.ask import run_ask
+from kb_agent.llm.base import LLMResponse
 from tests.conftest import run_cli
 
 
@@ -37,3 +39,40 @@ def test_learn_from_session_creates_staged_run(tmp_path: Path, monkeypatch):
     )
     assert len(pending_notes) == 1
     assert "kb://source/manual" in pending_notes[0].read_text()
+
+
+def test_learn_from_llm_session_preserves_provenance_without_trusting_answer(
+    tmp_path: Path, monkeypatch
+):
+    class FakeProvider:
+        def answer(self, *, question, intent, evidence, attachments):
+            return LLMResponse(
+                text="# Answer\n\nLLM interpretation that should not become source truth",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+            )
+
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "manual.md"
+    source.write_text("# Configuration Space\nBAR notes\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+    ask = run_ask(
+        tmp_path / "pcie",
+        "What is Configuration Space?",
+        use_llm=True,
+        llm_provider=FakeProvider(),
+    )
+
+    learn = run_cli("learn", "--from-session", ask.session_path)
+
+    assert learn.exit_code == 0
+    run_id = learn.output.split("Learn run:", 1)[1].splitlines()[0].strip()
+    run_root = tmp_path / "pcie" / ".kb" / "learn_runs" / run_id
+    chunks = read_jsonl(run_root / "chunks.jsonl")
+    claims = read_jsonl(run_root / "claims.jsonl")
+    assert chunks[0]["answer_mode"] == "llm"
+    assert chunks[0]["kind"] == "session_question_and_evidence"
+    assert "LLM interpretation" not in chunks[0]["text"]
+    assert claims[0]["confidence"] == "llm_session_unverified"
