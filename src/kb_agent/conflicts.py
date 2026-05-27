@@ -31,6 +31,12 @@ def tokens(text: str) -> list[str]:
     return re.findall(r"[a-z0-9_]+", text.lower().replace("can't", "cannot"))
 
 
+def has_phrase(text: str, phrase: str) -> bool:
+    words = [re.escape(word) for word in phrase.lower().split()]
+    pattern = r"(?<![a-z0-9_])" + r"\s+".join(words) + r"(?![a-z0-9_])"
+    return re.search(pattern, text.lower()) is not None
+
+
 def normalized_without_negation(text: str) -> str:
     ignored = NEGATION_WORDS | AUXILIARY_WORDS
     return " ".join(token for token in tokens(text) if token not in ignored)
@@ -38,7 +44,7 @@ def normalized_without_negation(text: str) -> str:
 
 def has_negation(text: str) -> bool:
     lowered = text.lower().replace("can't", "cannot")
-    return any(pattern in lowered for pattern in ["must not", "shall not"]) or any(
+    return any(has_phrase(lowered, pattern) for pattern in ["must not", "shall not"]) or any(
         token in NEGATION_WORDS for token in tokens(lowered)
     )
 
@@ -48,8 +54,7 @@ def has_requirement_modal(text: str) -> bool:
 
 
 def has_prohibition_modal(text: str) -> bool:
-    lowered = text.lower()
-    return any(pattern in lowered for pattern in PROHIBITION_PATTERNS)
+    return any(has_phrase(text, pattern) for pattern in PROHIBITION_PATTERNS)
 
 
 def has_requirement_without_prohibition(text: str) -> bool:
@@ -65,11 +70,20 @@ def token_overlap_ratio(left: str, right: str) -> float:
 
 
 def parse_assignment(text: str) -> tuple[str, str] | None:
-    normalized = " ".join(tokens(text))
-    match = re.match(r"(.+?)\s+(?:is|uses|=)\s+(.+)", normalized)
+    match = re.match(r"\s*(.+?)\s*(?:=|\bis\b|\buses\b)\s*(.+?)\s*$", text.lower())
     if not match:
         return None
-    return match.group(1).strip(), match.group(2).strip()
+    left = " ".join(tokens(match.group(1)))
+    right = " ".join(tokens(match.group(2)))
+    if not left or not right:
+        return None
+    return left, right
+
+
+def validate_run_id(run_id: str) -> None:
+    path = Path(run_id)
+    if not run_id or path.is_absolute() or path.name != run_id or run_id in {".", ".."}:
+        raise ValueError("run_id must be a safe single path component")
 
 
 def conflict_rule(accepted: dict, candidate: dict) -> str | None:
@@ -181,6 +195,7 @@ def detect_accepted_conflicts(root: Path) -> list[ClaimConflict]:
 def write_conflict_artifacts(
     root: Path, run_id: str, conflicts: list[ClaimConflict]
 ) -> str:
+    validate_run_id(run_id)
     conflict_root = root / "reviews" / "conflicts" / run_id
     conflict_root.mkdir(parents=True, exist_ok=True)
     write_jsonl(
