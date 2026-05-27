@@ -145,6 +145,9 @@ def health() -> None:
     typer.echo(f"Health: {report.status}")
     typer.echo(f"Sources: {report.source_count}")
     typer.echo(f"Findings: {report.finding_count}")
+    typer.echo(f"Graph nodes: {report.graph_node_count}")
+    typer.echo(f"Graph edges: {report.graph_edge_count}")
+    typer.echo(f"Conflicts: {report.conflict_count}")
 
 
 @graph_app.command(name="export")
