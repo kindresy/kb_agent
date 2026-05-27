@@ -56,11 +56,14 @@ candidate_path = Path(".kb/learn_runs") / run_id / "claims.jsonl"
 
 accepted_claim = json.loads(accepted_path.read_text(encoding="utf-8").splitlines()[0])
 candidate_claim = json.loads(candidate_path.read_text(encoding="utf-8").splitlines()[0])
+accepted_text = str(accepted_claim.get("claim", "")).strip()
+if not accepted_text:
+    raise SystemExit("accepted claim text is empty; cannot create conflict")
 
 candidate_claim["topic_id"] = accepted_claim["topic_id"]
-candidate_claim["claim"] = accepted_claim["claim"].replace(
-    "The source introduces", "The source not introduces", 1
-)
+candidate_claim["claim"] = accepted_text.rstrip(".") + " not."
+if candidate_claim["claim"] == accepted_text:
+    raise SystemExit("candidate claim did not differ from accepted claim")
 
 candidate_path.write_text(
     json.dumps(candidate_claim, sort_keys=True) + "\n",
