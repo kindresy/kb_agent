@@ -104,3 +104,103 @@ def test_graph_export_indexes_accepted_sources_topics_claims_chunks_and_notes(
     assert "- Total claims: 1" in report_text
     assert "- Cited claims: 1" in report_text
     assert "- Uncited claims: 0" in report_text
+
+
+def test_graph_export_deduplicates_edges_before_writing_artifacts(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    kb_root = tmp_path / "pcie"
+    claims_root = kb_root / ".kb" / "claims"
+    claims_root.mkdir(parents=True, exist_ok=True)
+    (claims_root / "claims.jsonl").write_text(
+        json.dumps(
+            {
+                "claim_id": "claim.duplicate",
+                "claim": "Duplicate citations point to the same source.",
+                "citations": ["kb://source/manual", "kb://source/manual"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(kb_root)
+
+    result = run_cli("graph", "export")
+
+    assert result.exit_code == 0
+    edges = read_jsonl(kb_root / ".kb" / "graph" / "edges.jsonl")
+    assert edges == [
+        {
+            "from": "claim:claim.duplicate",
+            "to": "source:manual",
+            "type": "claim_cites_source",
+            "evidence": "kb://source/manual",
+        }
+    ]
+    summary = json.loads((kb_root / ".kb" / "graph" / "summary.json").read_text())
+    assert summary["edge_count"] == 1
+    assert summary["edge_counts"] == {"claim_cites_source": 1}
+
+
+def test_graph_export_matches_note_topics_by_words_not_substrings(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    kb_root = tmp_path / "pcie"
+    topics_root = kb_root / ".kb" / "topics"
+    topics_root.mkdir(parents=True, exist_ok=True)
+    (topics_root / "topics.jsonl").write_text(
+        json.dumps(
+            {
+                "topic_id": "topic.bar",
+                "name": "BAR",
+                "aliases": ["base address register"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    notes_root = kb_root / "notes"
+    (notes_root / "barrier.md").write_text(
+        "# Barrier\n\nThis note discusses a barrier transaction.\n",
+        encoding="utf-8",
+    )
+    (notes_root / "bar.md").write_text(
+        "# BAR\n\nThis note discusses bar sizing.\n",
+        encoding="utf-8",
+    )
+    (notes_root / "alias.md").write_text(
+        "# Alias\n\nThe base address register is programmed during enumeration.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(kb_root)
+
+    result = run_cli("graph", "export")
+
+    assert result.exit_code == 0
+    topic_edges = [
+        edge
+        for edge in read_jsonl(kb_root / ".kb" / "graph" / "edges.jsonl")
+        if edge["type"] == "note_mentions_topic"
+    ]
+    assert {
+        "from": "note:notes/barrier.md",
+        "to": "topic:topic.bar",
+        "type": "note_mentions_topic",
+        "evidence": "topic.bar",
+    } not in topic_edges
+    assert {
+        "from": "note:notes/bar.md",
+        "to": "topic:topic.bar",
+        "type": "note_mentions_topic",
+        "evidence": "topic.bar",
+    } in topic_edges
+    assert {
+        "from": "note:notes/alias.md",
+        "to": "topic:topic.bar",
+        "type": "note_mentions_topic",
+        "evidence": "topic.bar",
+    } in topic_edges

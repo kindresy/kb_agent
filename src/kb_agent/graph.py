@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -61,9 +63,43 @@ def _note_paths(root: Path) -> list[Path]:
     return sorted(notes_root.rglob("*.md")) if notes_root.is_dir() else []
 
 
+def _edge_key(edge: GraphEdge) -> tuple[str, str, str, str]:
+    return (edge.from_, edge.to, edge.type, edge.evidence)
+
+
+def _sorted_unique_edges(edges: list[GraphEdge]) -> list[GraphEdge]:
+    return sorted({_edge_key(edge): edge for edge in edges}.values(), key=_edge_key)
+
+
+def _tokens(text: str) -> tuple[str, ...]:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return tuple(re.findall(r"[a-z0-9]+", normalized))
+
+
+def _topic_terms(topic: dict) -> set[tuple[str, ...]]:
+    topic_id = str(topic.get("topic_id", ""))
+    values = [
+        topic_id,
+        topic_id.removeprefix("topic.").replace("_", " "),
+        str(topic.get("name", "")),
+    ]
+    values.extend(str(alias) for alias in topic.get("aliases") or [])
+    return {tokens for value in values if (tokens := _tokens(value))}
+
+
+def _contains_token_phrase(tokens: tuple[str, ...], phrase: tuple[str, ...]) -> bool:
+    if len(phrase) > len(tokens):
+        return False
+    return any(
+        tokens[index : index + len(phrase)] == phrase
+        for index in range(len(tokens) - len(phrase) + 1)
+    )
+
+
 def build_graph(root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
     nodes: dict[str, GraphNode] = {}
     edges: list[GraphEdge] = []
+    topic_match_terms: dict[str, set[tuple[str, ...]]] = {}
 
     for source in load_source_index(root):
         nodes[f"source:{source.source_id}"] = GraphNode(
@@ -79,6 +115,7 @@ def build_graph(root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
             topic_id = str(topic.get("topic_id", ""))
             if not topic_id:
                 continue
+            topic_match_terms[topic_id] = _topic_terms(topic)
             nodes[f"topic:{topic_id}"] = GraphNode(
                 node_id=f"topic:{topic_id}",
                 type="topic",
@@ -163,11 +200,6 @@ def build_graph(root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
                         )
                     )
 
-    topic_ids = {
-        node.node_id.removeprefix("topic:")
-        for node in nodes.values()
-        if node.type == "topic"
-    }
     for note in _note_paths(root):
         relative = note.relative_to(root).as_posix()
         text = note.read_text(encoding="utf-8", errors="replace")
@@ -187,10 +219,9 @@ def build_graph(root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
                     evidence=source_id,
                 )
             )
-        note_text = text.lower()
-        for topic_id in topic_ids:
-            topic_phrase = topic_id.removeprefix("topic.").replace("_", " ")
-            if topic_id in text or topic_phrase in note_text:
+        note_tokens = _tokens(text)
+        for topic_id, terms in topic_match_terms.items():
+            if any(_contains_token_phrase(note_tokens, term) for term in terms):
                 edges.append(
                     GraphEdge(
                         from_=node_id,
@@ -200,8 +231,8 @@ def build_graph(root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
                     )
                 )
 
-    return sorted(nodes.values(), key=lambda node: node.node_id), sorted(
-        edges, key=lambda edge: (edge.from_, edge.to, edge.type, edge.evidence)
+    return sorted(nodes.values(), key=lambda node: node.node_id), _sorted_unique_edges(
+        edges
     )
 
 
