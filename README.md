@@ -118,6 +118,10 @@ kb ask --llm --model claude-sonnet-4-20250514 "Why was BAR0 not assigned?"
 LLM answers are saved only into the ask session. They are generated from the
 same local evidence pack used by deterministic ask, including bounded evidence
 excerpts. If an LLM call fails, `kb-agent` removes the partial session.
+For prompt stability, `kb ask --llm` reranks retrieved evidence locally and sends
+only the bounded `prompt_evidence` slice to the model. The complete retrieved
+`evidence` list and `evidence_selection` metadata remain in the session for
+audit.
 
 Promote useful findings through the existing review path:
 

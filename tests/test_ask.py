@@ -36,6 +36,11 @@ def test_ask_prints_cited_answer_and_writes_session(tmp_path: Path, monkeypatch)
     assert evidence["llm_provider"] is None
     assert evidence["llm_model"] is None
     assert evidence["evidence"][0]["ref"] == "kb://source/manual"
+    assert evidence["prompt_evidence"][0]["ref"] == "kb://source/manual"
+    assert evidence["evidence_selection"]["candidate_count"] == len(evidence["evidence"])
+    assert evidence["evidence_selection"]["selected_count"] == len(
+        evidence["prompt_evidence"]
+    )
 
 
 def test_ask_with_attachment_writes_debug_session_and_copies_file(
@@ -118,12 +123,15 @@ def test_ask_retrieves_matching_claims_notes_and_chunks(tmp_path: Path, monkeypa
 def test_run_ask_llm_mode_writes_provider_answer_and_metadata(
     tmp_path: Path, monkeypatch
 ):
+    provider_evidence_refs = []
+
     class FakeProvider:
         def answer(self, *, question, intent, evidence, attachments):
             assert question == "Explain BAR Assignment"
             assert intent == "concept"
             assert evidence
             assert attachments == []
+            provider_evidence_refs.extend(item["ref"] for item in evidence)
             return LLMResponse(
                 text="# Answer\n\nLLM cited answer using kb://source/manual",
                 provider="anthropic",
@@ -152,6 +160,54 @@ def test_run_ask_llm_mode_writes_provider_answer_and_metadata(
     assert evidence["llm_provider"] == "anthropic"
     assert evidence["llm_model"] == "claude-sonnet-4-20250514"
     assert evidence["evidence"][0]["excerpt"] == "# BAR Assignment\nBAR notes"
+    assert evidence["prompt_evidence"][0]["ref"] == "kb://source/manual"
+    assert evidence["prompt_evidence"][0]["score"] > 0
+    assert evidence["evidence_selection"]["method"] == "deterministic_token_phrase_v1"
+    assert evidence["evidence_selection"]["candidate_count"] == len(evidence["evidence"])
+    assert provider_evidence_refs == [
+        item["ref"] for item in evidence["prompt_evidence"]
+    ]
+
+
+def test_ask_llm_passes_reranked_prompt_evidence_to_provider(
+    tmp_path: Path, monkeypatch
+):
+    provider_evidence_refs = []
+
+    class FakeProvider:
+        def answer(self, *, question, intent, evidence, attachments):
+            provider_evidence_refs.extend(item["ref"] for item in evidence)
+            return LLMResponse(
+                text="# Answer\n\nLLM answer",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+            )
+
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    generic = tmp_path / "pcie.md"
+    generic.write_text("# PCIe Overview\nGeneric PCIe text\n", encoding="utf-8")
+    bar = tmp_path / "pcie-bar-assignment.md"
+    bar.write_text(
+        "# PCIe BAR Assignment\nBAR assignment maps Base Address Registers.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(generic)).exit_code == 0
+    assert run_cli("ingest", str(bar)).exit_code == 0
+
+    result = run_ask(
+        tmp_path / "pcie",
+        "Explain PCIe BAR assignment",
+        use_llm=True,
+        llm_provider=FakeProvider(),
+    )
+
+    session = tmp_path / "pcie" / result.session_path
+    evidence_pack = json.loads((session / "evidence_pack.json").read_text())
+    assert len(evidence_pack["evidence"]) == 2
+    assert evidence_pack["prompt_evidence"][0]["ref"] == "kb://source/pcie_bar_assignment"
+    assert provider_evidence_refs[0] == "kb://source/pcie_bar_assignment"
 
 
 def test_ask_source_excerpt_is_bounded_for_large_text_sources(

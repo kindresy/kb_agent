@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from kb_agent.evidence import select_prompt_evidence
 from kb_agent.jsonl import read_jsonl
 from kb_agent.llm.base import LLMProvider
 from kb_agent.llm.anthropic_provider import AnthropicProvider
@@ -366,6 +367,7 @@ def run_ask(
     try:
         attachments = copy_attachments(root, session_dir, attachment_paths)
         evidence = retrieve_evidence(root, question, attachments)
+        prompt_evidence, evidence_selection = select_prompt_evidence(question, evidence)
         llm_response = None
         if use_llm:
             if llm_provider is None:
@@ -373,7 +375,7 @@ def run_ask(
             llm_response = llm_provider.answer(
                 question=question,
                 intent=intent,
-                evidence=evidence,
+                evidence=prompt_evidence,
                 attachments=attachments,
             )
             answer = llm_response.text
@@ -394,6 +396,8 @@ def run_ask(
                     "llm_model": llm_response.model if llm_response else None,
                     "attachments": attachments,
                     "evidence": evidence,
+                    "prompt_evidence": prompt_evidence,
+                    "evidence_selection": evidence_selection,
                 },
                 ensure_ascii=False,
                 indent=2,
