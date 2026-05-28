@@ -283,6 +283,84 @@ def write_pending_notes(
     return paths
 
 
+def markdown_excerpt(text: str, limit: int = 2000) -> str:
+    normalized = text.strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def write_llm_session_pending_note(
+    root: Path,
+    run_id: str,
+    topic: dict[str, object],
+    claim: dict[str, object],
+    session_dir: Path,
+    question_text: str,
+    answer_text: str,
+    evidence_pack: dict[str, object],
+) -> list[str]:
+    pending_root = root / "reviews" / "pending_notes" / run_id
+    pending_root.mkdir(parents=True, exist_ok=True)
+    path = pending_root / f"{topic['topic_id']}.md"
+    prompt_evidence = evidence_pack.get("prompt_evidence", [])
+    evidence_lines: list[str] = []
+    if isinstance(prompt_evidence, list):
+        for item in prompt_evidence:
+            if not isinstance(item, dict):
+                continue
+            ref = str(item.get("ref") or item.get("citation") or "<missing ref>")
+            score = item.get("score", "n/a")
+            why = str(item.get("why_relevant", "selected prompt evidence"))
+            evidence_lines.append(f"- {ref} (score: {score}; {why})")
+    if not evidence_lines:
+        evidence_lines.append(f"- {claim['citations'][0]}")
+
+    path.write_text(
+        "\n".join(
+            [
+                f"# {topic['name']}",
+                "",
+                "## Review Status",
+                "",
+                "- Source: ask session",
+                "- Answer mode: `llm`",
+                "- Confidence: `llm_session_unverified`",
+                "- This note is staged for human review. The LLM answer is not accepted source truth until `kb accept`.",
+                "",
+                "## Original Question",
+                "",
+                markdown_excerpt(question_text),
+                "",
+                "## Unverified LLM Answer Excerpt",
+                "",
+                markdown_excerpt(answer_text),
+                "",
+                "## Prompt Evidence Used",
+                "",
+                *evidence_lines,
+                "",
+                "## Required Human Checks",
+                "",
+                "- Verify the answer against the cited source material.",
+                "- Remove or edit unsupported LLM statements before accepting.",
+                "- Run `kb compile --fast` after acceptance.",
+                "",
+                "## Evidence",
+                "",
+                f"- {claim['citations'][0]}",
+                "",
+                "## Related Session",
+                "",
+                f"- {session_dir.relative_to(root).as_posix()}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return [path.relative_to(root).as_posix()]
+
+
 def write_learn_report(
     root: Path,
     run: LearnRun,
@@ -455,7 +533,19 @@ def run_learn_from_session(root: Path, session_path: Path, goal: str | None) -> 
     write_jsonl(run_root / "topics.jsonl", [topic])
     write_jsonl(run_root / "chunks.jsonl", [chunk])
     write_jsonl(run_root / "claims.jsonl", [claim])
-    pending_notes = write_pending_notes(root, run.run_id, [topic], [claim])
+    if answer_mode == "llm":
+        pending_notes = write_llm_session_pending_note(
+            root,
+            run.run_id,
+            topic,
+            claim,
+            session_dir,
+            question_text,
+            answer_text,
+            evidence_pack,
+        )
+    else:
+        pending_notes = write_pending_notes(root, run.run_id, [topic], [claim])
     write_learn_report(root, run, [profile], [topic], [chunk], [claim], pending_notes)
     return run
 

@@ -131,7 +131,10 @@ kb accept <learn_run_id>
 ```
 
 LLM session learning preserves `answer_mode=llm` provenance and does not treat
-the LLM answer itself as deterministic source truth.
+the LLM answer itself as deterministic source truth. For LLM ask sessions,
+`kb learn --from-session` creates a richer pending review note with the original
+question, an unverified answer excerpt, prompt evidence, and required human
+checks before acceptance.
 
 ## Design
 

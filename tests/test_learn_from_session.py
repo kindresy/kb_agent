@@ -76,3 +76,47 @@ def test_learn_from_llm_session_preserves_provenance_without_trusting_answer(
     assert chunks[0]["kind"] == "session_question_and_evidence"
     assert "LLM interpretation" not in chunks[0]["text"]
     assert claims[0]["confidence"] == "llm_session_unverified"
+
+
+def test_learn_from_llm_session_writes_review_note_with_answer_and_prompt_evidence(
+    tmp_path: Path, monkeypatch
+):
+    class FakeProvider:
+        def answer(self, *, question, intent, evidence, attachments):
+            return LLMResponse(
+                text="# Answer\n\nBAR assignment maps Base Address Registers.",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+            )
+
+    monkeypatch.chdir(tmp_path)
+    assert run_cli("init", "pcie").exit_code == 0
+    source = tmp_path / "bar.md"
+    source.write_text(
+        "# PCIe BAR Assignment\nBAR assignment maps Base Address Registers.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path / "pcie")
+    assert run_cli("ingest", str(source)).exit_code == 0
+    ask = run_ask(
+        tmp_path / "pcie",
+        "Explain PCIe BAR Assignment",
+        use_llm=True,
+        llm_provider=FakeProvider(),
+    )
+
+    learn = run_cli("learn", "--from-session", ask.session_path)
+
+    assert learn.exit_code == 0
+    run_id = learn.output.split("Learn run:", 1)[1].splitlines()[0].strip()
+    pending_notes = list(
+        (tmp_path / "pcie" / "reviews" / "pending_notes" / run_id).glob("*.md")
+    )
+    assert len(pending_notes) == 1
+    note = pending_notes[0].read_text(encoding="utf-8")
+    assert "## Unverified LLM Answer Excerpt" in note
+    assert "BAR assignment maps Base Address Registers." in note
+    assert "Confidence: `llm_session_unverified`" in note
+    assert "kb://source/bar" in note
+    assert "score:" in note
+    assert "## Required Human Checks" in note
